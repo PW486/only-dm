@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.instagram.dm.desktop</string>
+    <key>CFBundleName</key>
+    <string>Instagram DM</string>
+    <key>CFBundleDisplayName</key>
+    <string>Instagram DM</string>
+    <key>CFBundleVersion</key>
+    <string>0.1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Instagram DM requires camera access to capture photos or videos in chat.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Instagram DM requires microphone access in chat.</string>
+</dict>
+</plist>

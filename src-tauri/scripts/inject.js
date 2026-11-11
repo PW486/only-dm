@@ -17,6 +17,22 @@
   const STYLE_ID = "ig-dm-desktop-custom-css";
   const LOGOUT_BTN_ID = "ig-dm-logout-btn";
   const LOGOUT_MODAL_ID = "ig-dm-logout-modal-backdrop";
+  const ACCOUNT_LOCK_ATTR = "data-ig-dm-account-locked";
+
+  // Block Instagram's incoming-call ringtone without affecting voice messages or
+  // other media. The call modal uses an autoplaying, looping <audio> element.
+  try {
+    const originalMediaPlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () {
+      if (this.tagName === "AUDIO" && this.autoplay && this.loop) {
+        try {
+          this.muted = true;
+        } catch (_) {}
+        return Promise.resolve();
+      }
+      return originalMediaPlay.apply(this, arguments);
+    };
+  } catch (_) {}
 
   // Cache mapping profile image `src` -> conversation partner display name
   const avatarNameCache = new Map();
@@ -378,14 +394,18 @@
       border: none;
       border-radius: 8px;
       background: transparent;
-      color: rgb(var(--ig-primary-text, 245, 245, 245));
+      color: rgb(var(--ig-primary-icon, 245, 245, 245));
       cursor: pointer;
-      transition: background-color 0.15s ease, opacity 0.15s ease;
+      transform-origin: center;
+      transition: transform 0.15s ease-out, opacity 0.15s ease-out;
       flex-shrink: 0;
     }
 
+    /* Match Instagram's "New message" hover: no background, icon grows slightly. */
     #${LOGOUT_BTN_ID}:hover {
-      background-color: rgba(128, 128, 128, 0.18);
+      background-color: transparent;
+      opacity: 1;
+      transform: scale(1.05);
     }
 
     #${LOGOUT_BTN_ID}:active {
@@ -449,6 +469,58 @@
     .ig-dm-logout-cancel {
       color: rgb(var(--ig-primary-text, 245, 245, 245));
       font-weight: 400;
+    }
+
+    /* ==========================================================================
+       5. Single-Account Mode: Non-Clickable DM Header Username
+       ========================================================================== */
+
+    [data-ig-dm-account-locked="true"],
+    [data-ig-dm-account-locked="true"]:hover,
+    [data-ig-dm-account-locked="true"]:active,
+    [data-ig-dm-account-locked="true"]:focus,
+    [data-ig-dm-account-locked="true"]:focus-visible,
+    [data-ig-dm-account-locked="true"] *,
+    [data-ig-dm-account-locked="true"]:hover *,
+    [data-ig-dm-account-locked="true"]:active *,
+    [data-ig-dm-account-locked="true"]:focus *,
+    [data-ig-dm-account-locked="true"]:focus-visible * {
+      background-color: transparent !important;
+      box-shadow: none !important;
+      color: rgb(var(--ig-primary-text, 245, 245, 245)) !important;
+      cursor: default !important;
+      opacity: 1 !important;
+      outline: none !important;
+      text-decoration: none !important;
+      -webkit-tap-highlight-color: transparent !important;
+      -webkit-text-fill-color: rgb(var(--ig-primary-text, 245, 245, 245)) !important;
+    }
+
+    [data-ig-dm-account-locked="true"]::before,
+    [data-ig-dm-account-locked="true"]::after,
+    [data-ig-dm-account-locked="true"] *::before,
+    [data-ig-dm-account-locked="true"] *::after {
+      background-color: transparent !important;
+      box-shadow: none !important;
+      opacity: 1 !important;
+    }
+
+    [data-ig-dm-account-locked="true"] svg {
+      display: none !important;
+    }
+
+    /* ==========================================================================
+       6. Hide Incoming Audio/Video Call Modal
+       ========================================================================== */
+
+    /* The incoming call modal is the only dialog with an autoplaying/looping ringtone. */
+    div[role="dialog"][aria-modal="true"]:has(audio[autoplay][loop]),
+    [data-ig-dm-call-suppressed="true"] {
+      display: none !important;
+    }
+
+    audio[autoplay][loop] {
+      display: none !important;
     }
   `;
 
@@ -540,6 +612,10 @@
 
     window.location.replace("https://www.instagram.com/__ig_dm_logout__");
   }
+
+  // Lets the native "Instagram DM > Log Out" menu item reuse this same
+  // server-side logout + storage clear flow instead of only wiping local cookies.
+  window.__IG_DM_LOGOUT__ = executeLogout;
 
   /**
    * Opens the localized in-app Logout confirmation dialog matching the user's language setting.
@@ -656,6 +732,9 @@
     const headerActionContainer = composeBtn.parentElement;
     headerActionContainer.style.setProperty("display", "flex", "important");
     headerActionContainer.style.setProperty("align-items", "center", "important");
+    // Instagram turns this wrapper full-width in its narrow layouts. Centering keeps
+    // the New message + logout pair in the middle of the header instead of at its left edge.
+    headerActionContainer.style.setProperty("justify-content", "center", "important");
 
     const logoutBtn = document.createElement("button");
     logoutBtn.id = LOGOUT_BTN_ID;
@@ -663,7 +742,7 @@
     logoutBtn.title = i18n.tooltip;
     logoutBtn.setAttribute("aria-label", i18n.tooltip);
     logoutBtn.innerHTML = `
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
         <polyline points="16 17 21 12 16 7" />
         <line x1="21" y1="12" x2="9" y2="12" />
@@ -677,6 +756,160 @@
     });
 
     headerActionContainer.appendChild(logoutBtn);
+  }
+
+  /**
+   * Returns true when an SVG is Instagram's small "down chevron" icon used by
+   * the DM account switcher. Its label may be localized, so match common
+   * translations in addition to the English aria-label/title.
+   */
+  function isDownChevronIcon(svg) {
+    const titleEl = svg.querySelector("title");
+    const label = [
+      svg.getAttribute("aria-label"),
+      svg.getAttribute("title"),
+      titleEl ? titleEl.textContent : "",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return /chevron|arrow|화살표|矢印|箭头|箭頭|flecha|flèche|pfeil|seta/.test(label);
+  }
+
+  /**
+   * Single-account mode: disables the username/account switcher at the top of
+   * the DM conversation list. The chevron is hidden via CSS and activation is
+   * blocked in the capture phase so Instagram's React handler never runs.
+   */
+  function lockDmAccountSwitcher() {
+    if (!window.location.pathname.startsWith("/direct")) return;
+
+    const mainEl = document.querySelector('main[role="main"]');
+    if (!mainEl) return;
+    const dmNav = mainEl.querySelector('div[role="navigation"]') || mainEl;
+
+    const composeBtn = findComposeButton();
+    const composeRect = composeBtn ? composeBtn.getBoundingClientRect() : null;
+    const candidates = dmNav.querySelectorAll('[role="button"], button, a[href]');
+
+    let target = null;
+    let fallback = null;
+
+    for (let i = 0; i < candidates.length; i++) {
+      const el = candidates[i];
+      if (el.id === LOGOUT_BTN_ID) continue;
+      if (el.closest(`[${ACCOUNT_LOCK_ATTR}="true"]`)) continue;
+      if (el.closest('[data-ig-dm-thread-row="true"]')) continue;
+      if (el.querySelector("img, canvas")) continue;
+      if (composeBtn && (el === composeBtn || el.contains(composeBtn) || composeBtn.contains(el))) {
+        continue;
+      }
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      if (rect.left > 460) continue;
+
+      // Keep the search in the same header row as the "New message" button.
+      if (composeRect) {
+        if (rect.bottom < composeRect.top - 8 || rect.top > composeRect.bottom + 8) {
+          continue;
+        }
+      } else if (rect.top > 110) {
+        continue;
+      }
+
+      const text = (el.textContent || "").trim();
+      if (!text || text.length > 40) continue;
+
+      const svgs = el.querySelectorAll("svg");
+      if (svgs.length === 0) continue;
+
+      let hasChevron = false;
+      for (let j = 0; j < svgs.length; j++) {
+        if (isDownChevronIcon(svgs[j])) {
+          hasChevron = true;
+          break;
+        }
+      }
+
+      if (hasChevron) {
+        target = el;
+        break;
+      }
+      if (!fallback) fallback = el;
+    }
+
+    const lockTarget = target || fallback;
+    if (!lockTarget) return;
+
+    lockTarget.setAttribute(ACCOUNT_LOCK_ATTR, "true");
+    lockTarget.setAttribute("aria-disabled", "true");
+    lockTarget.setAttribute("tabindex", "-1");
+  }
+
+  /**
+   * Finds the full-screen backdrop mask that belongs to the incoming-call modal.
+   * The mask is a fixed, viewport-sized sibling of the dialog inside the modal
+   * layer, so hiding the dialog alone would leave the dark overlay (and its
+   * click blocking) on screen.
+   */
+  function findCallBackdrop(dialog) {
+    let node = dialog.parentElement;
+    let depth = 0;
+
+    while (node && node !== document.body && depth < 12) {
+      const children = node.children;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (child === dialog || child.contains(dialog)) continue;
+
+        const style = window.getComputedStyle(child);
+        if (style.position !== "fixed" || style.pointerEvents === "none") continue;
+
+        const rect = child.getBoundingClientRect();
+        if (
+          rect.width >= window.innerWidth * 0.9 &&
+          rect.height >= window.innerHeight * 0.9
+        ) {
+          return child;
+        }
+      }
+
+      node = node.parentElement;
+      depth++;
+    }
+
+    return null;
+  }
+
+  /**
+   * Hides incoming audio/video call modals and silences their ringtone, without
+   * sending any decline/ack action. The call therefore keeps ringing on the
+   * account's other devices/browsers where it can be answered normally.
+   */
+  function suppressIncomingCalls() {
+    const ringtones = document.querySelectorAll("audio[autoplay][loop]");
+    for (let i = 0; i < ringtones.length; i++) {
+      const ringtone = ringtones[i];
+
+      // Silence the local ringtone only. Keep the autoplay/loop attributes
+      // intact so the CSS `:has(audio[autoplay][loop])` rule keeps matching.
+      try {
+        ringtone.muted = true;
+        ringtone.pause();
+      } catch (_) {}
+
+      const dialog = ringtone.closest('[role="dialog"], [aria-modal="true"]');
+      if (!dialog) continue;
+
+      dialog.setAttribute("data-ig-dm-call-suppressed", "true");
+
+      const backdrop = findCallBackdrop(dialog);
+      if (backdrop) {
+        backdrop.setAttribute("data-ig-dm-call-suppressed", "true");
+      }
+    }
   }
 
   /**
@@ -930,7 +1163,7 @@
 
           const hasGlobalNav = Boolean(sib.querySelector(GLOBAL_NAV_SELECTORS));
 
-          // Protect active modal dialogs (e.g. shared Post/Reel/Story popup, Logout modal, Account Switcher)
+          // Protect active modal dialogs (e.g. shared Post/Reel/Story popup, Logout modal)
           const isModalPortal =
             sib.id === LOGOUT_MODAL_ID ||
             (!hasGlobalNav &&
@@ -1200,6 +1433,8 @@
     injectStyles();
     hideCallAndVoiceButtons();
     ensureLogoutButton();
+    lockDmAccountSwitcher();
+    suppressIncomingCalls();
     hideGlobalNavigationAndEliminateBlankSpace();
     enhanceDmConversationList();
   }
@@ -1210,6 +1445,7 @@
   window.addEventListener("resize", () => {
     hideCallAndVoiceButtons();
     ensureLogoutButton();
+    lockDmAccountSwitcher();
     hideGlobalNavigationAndEliminateBlankSpace();
     enhanceDmConversationList();
   });
@@ -1220,6 +1456,9 @@
     if (!document.getElementById(STYLE_ID)) {
       injectStyles();
     }
+    // Handle the call modal immediately (before the next paint) so the popup
+    // never becomes visible and the ringtone is stopped as early as possible.
+    suppressIncomingCalls();
     if (!rafPending) {
       rafPending = true;
       requestAnimationFrame(() => {
@@ -1230,6 +1469,8 @@
   });
 
   observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["autoplay", "loop"],
     childList: true,
     subtree: true,
   });
@@ -1259,6 +1500,43 @@
       } catch (_) {
         // Ignore malformed URLs
       }
+    },
+    true
+  );
+
+  // Single-account mode: block any activation of the locked DM account switcher.
+  function isLockedAccountActivation(event) {
+    const target = event.target;
+    return Boolean(
+      target &&
+        target.closest &&
+        target.closest(`[${ACCOUNT_LOCK_ATTR}="true"]`)
+    );
+  }
+
+  ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach((type) => {
+    document.addEventListener(
+      type,
+      (event) => {
+        if (!isLockedAccountActivation(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+      },
+      true
+    );
+  });
+
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") {
+        return;
+      }
+      if (!isLockedAccountActivation(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
     },
     true
   );

@@ -1,6 +1,6 @@
 use std::fs;
 use tauri::{
-    menu::{AboutMetadata, Menu, MenuItemBuilder, PredefinedMenuItem, Submenu},
+    menu::{AboutMetadata, Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem, Submenu},
     webview::{NewWindowResponse, PageLoadEvent},
     AppHandle, Manager, RunEvent, Runtime, WebviewWindowBuilder, WindowEvent,
 };
@@ -8,6 +8,7 @@ use tauri_plugin_shell::ShellExt;
 use url::Url;
 
 const APP_DISPLAY_NAME: &str = "Instagram DM";
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Embedded initialization script for CSS injection, sidebar/bottom gap removal,
 /// call/voice button hiding, localized logout UI, and DM + media popup navigation lock.
@@ -25,6 +26,19 @@ const DESKTOP_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/60
 
 const LOGOUT_TRIGGER_PATH: &str = "/__ig_dm_logout__";
 const LOGIN_REDIRECT_URL: &str = "https://www.instagram.com/accounts/login/?next=%2Fdirect%2Finbox%2F";
+
+/// Evaluated when the app menu's "Log Out" item is clicked. Prefers the page's
+/// logout routine (which calls Instagram's logout API, invalidating the session
+/// server-side) and falls back to the internal trigger that performs native cleanup.
+const REQUEST_LOGOUT_SCRIPT: &str = r#"
+(function () {
+  if (typeof window.__IG_DM_LOGOUT__ === "function") {
+    window.__IG_DM_LOGOUT__();
+  } else {
+    window.location.replace("https://www.instagram.com/__ig_dm_logout__");
+  }
+})();
+"#;
 
 /// Returns `true` if a `window.open` / popup URL on `instagram.com` should stay in-app.
 /// User profile URLs (`/<username>/`) and `/explore/` return `false` so they open in the
@@ -160,7 +174,8 @@ fn open_in_system_browser(app_handle: &AppHandle, target_url: &str) {
 }
 
 /// Clears all browsing data (including HttpOnly session cookies) and redirects to the login page.
-fn perform_native_logout(app_handle: &AppHandle) {
+/// This is the final step, run after the page has invalidated the server-side session.
+fn finish_native_logout(app_handle: &AppHandle) {
     let handle = app_handle.clone();
     std::thread::spawn(move || {
         if let Some(win) = handle.get_webview_window("main") {
@@ -172,13 +187,45 @@ fn perform_native_logout(app_handle: &AppHandle) {
     });
 }
 
+/// Requests logout through the page's injected `executeLogout()` so Instagram's API
+/// invalidates the session first. `clear_all_browsing_data` is asynchronous on macOS,
+/// so navigating right after it could reload the still-authenticated inbox, which is
+/// why the app menu item previously appeared to need two clicks.
+fn request_native_logout(app_handle: &AppHandle) {
+    if let Some(win) = app_handle.get_webview_window("main") {
+        if win.eval(REQUEST_LOGOUT_SCRIPT).is_ok() {
+            return;
+        }
+    }
+    finish_native_logout(app_handle);
+}
+
+/// Enables or disables the app menu's "Log Out" item. The item is disabled on the
+/// login screen, where there is no session to end.
+fn set_logout_menu_enabled<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
+    let Some(menu) = app.menu() else { return };
+    let Some(MenuItemKind::Submenu(app_menu)) = menu.get("app-menu") else {
+        return;
+    };
+    if let Some(MenuItemKind::MenuItem(logout_item)) = app_menu.get("logout") {
+        let _ = logout_item.set_enabled(enabled);
+    }
+}
+
 /// Builds the application menu bar with "Instagram DM" as the explicit display name
 /// (including in the "About Instagram DM" dialog) instead of the Cargo package slug.
 fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
+    // `default_window_icon` resolves to the first PNG in `bundle.icon` (32x32), which the
+    // standard About panel would draw at its natural 32pt size. Load the full-size app icon
+    // instead so it fills the panel's 64pt icon slot.
+    let about_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).ok();
+
     let about_metadata = AboutMetadata {
         name: Some(APP_DISPLAY_NAME.to_string()),
-        version: Some(app.package_info().version.to_string()),
-        icon: app.default_window_icon().cloned(),
+        version: Some(APP_VERSION.to_string()),
+        // Build number shown in parentheses: "Version 0.1.0 (1)".
+        short_version: app.config().bundle.macos.bundle_version.clone(),
+        icon: about_icon,
         ..Default::default()
     };
 
@@ -186,8 +233,9 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .accelerator("CmdOrCtrl+Shift+L")
         .build(app)?;
 
-    let app_submenu = Submenu::with_items(
+    let app_submenu = Submenu::with_id_and_items(
         app,
+        "app-menu",
         APP_DISPLAY_NAME,
         true,
         &[
@@ -246,7 +294,7 @@ pub fn run() {
         .menu(|app| build_app_menu(app))
         .on_menu_event(|app, event| {
             if event.id() == "logout" {
-                perform_native_logout(app);
+                request_native_logout(app);
             }
         })
         .on_window_event(|window, event| {
@@ -298,6 +346,8 @@ pub fn run() {
 
             builder
                 .on_page_load(|window, payload| {
+                    let is_login_page = payload.url().path().starts_with("/accounts/login");
+                    set_logout_menu_enabled(window.app_handle(), !is_login_page);
                     if payload.event() == PageLoadEvent::Finished {
                         let _ = window.eval(INIT_SCRIPT);
                     }
@@ -305,7 +355,7 @@ pub fn run() {
                 .on_navigation(move |url| match classify_frame_navigation(url) {
                     NavigationAction::Allow => true,
                     NavigationAction::Logout => {
-                        perform_native_logout(&nav_handle);
+                        finish_native_logout(&nav_handle);
                         false
                     }
                     NavigationAction::OpenExternal(external_url) => {
@@ -321,7 +371,7 @@ pub fn run() {
                         NewWindowResponse::Deny
                     }
                     NavigationAction::Logout => {
-                        perform_native_logout(&popup_handle);
+                        finish_native_logout(&popup_handle);
                         NewWindowResponse::Deny
                     }
                     NavigationAction::OpenExternal(external_url) => {

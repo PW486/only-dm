@@ -1,7 +1,7 @@
 {
   "name": "instagram-dm",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lightweight Instagram DM Desktop Application built with Tauri v2",
   "scripts": {
     "tauri": "tauri",

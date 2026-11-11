@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Instagram DM",
+  "productName": "OnlyDM",
   "version": "0.1.1",
-  "identifier": "com.instagram.dm.desktop",
+  "identifier": "com.onlydm.desktop",
   "build": {
     "frontendDist": "../dist"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Instagram DM",
+        "title": "OnlyDM",
         "url": "https://www.instagram.com/direct/inbox/",
         "width": 1050,
         "height": 750,

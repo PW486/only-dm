@@ -613,7 +613,7 @@
     window.location.replace("https://www.instagram.com/__ig_dm_logout__");
   }
 
-  // Lets the native "Instagram DM > Log Out" menu item reuse this same
+  // Lets the native "OnlyDM > Log Out" menu item reuse this same
   // server-side logout + storage clear flow instead of only wiping local cookies.
   window.__IG_DM_LOGOUT__ = executeLogout;
 

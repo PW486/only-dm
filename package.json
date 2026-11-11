@@ -1,8 +1,8 @@
 {
-  "name": "instagram-dm",
+  "name": "only-dm",
   "private": true,
   "version": "0.1.1",
-  "description": "Lightweight Instagram DM Desktop Application built with Tauri v2",
+  "description": "OnlyDM is a lightweight desktop direct message client for Instagram.",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",

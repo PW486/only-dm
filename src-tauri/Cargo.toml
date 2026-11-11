@@ -1,12 +1,12 @@
 [package]
-name = "instagram-dm"
+name = "only-dm"
 version = "0.1.1"
-description = "Lightweight Instagram DM Desktop Application"
+description = "OnlyDM is a lightweight desktop direct message client for Instagram"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "instagram_dm_lib"
+name = "only_dm_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -7,7 +7,7 @@ use tauri::{
 use tauri_plugin_shell::ShellExt;
 use url::Url;
 
-const APP_DISPLAY_NAME: &str = "Instagram DM";
+const APP_DISPLAY_NAME: &str = "OnlyDM";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Embedded initialization script for CSS injection, sidebar/bottom gap removal,
@@ -212,8 +212,8 @@ fn set_logout_menu_enabled<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
     }
 }
 
-/// Builds the application menu bar with "Instagram DM" as the explicit display name
-/// (including in the "About Instagram DM" dialog) instead of the Cargo package slug.
+/// Builds the application menu bar with "OnlyDM" as the explicit display name
+/// (including in the "About OnlyDM" dialog) instead of the Cargo package slug.
 fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     // `default_window_icon` resolves to the first PNG in `bundle.icon` (32x32), which the
     // standard About panel would draw at its natural 32pt size. Load the full-size app icon
@@ -384,7 +384,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building Instagram DM application");
+        .expect("error while building OnlyDM application");
 
     app.run(|app_handle, event| {
         #[cfg(target_os = "macos")]

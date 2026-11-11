@@ -7,16 +7,16 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIdentifier</key>
-    <string>com.instagram.dm.desktop</string>
+    <string>com.onlydm.desktop</string>
     <key>CFBundleName</key>
-    <string>Instagram DM</string>
+    <string>OnlyDM</string>
     <key>CFBundleDisplayName</key>
-    <string>Instagram DM</string>
+    <string>OnlyDM</string>
     <key>CFBundleShortVersionString</key>
     <string>0.1.1</string>
     <key>NSCameraUsageDescription</key>
-    <string>Instagram DM requires camera access to capture photos or videos in chat.</string>
+    <string>OnlyDM requires camera access to capture photos or videos in chat.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Instagram DM requires microphone access in chat.</string>
+    <string>OnlyDM requires microphone access in chat.</string>
 </dict>
 </plist>

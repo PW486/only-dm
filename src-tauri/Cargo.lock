@@ -1473,19 +1473,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "instagram-dm"
-version = "0.1.1"
-dependencies = [
- "tauri",
- "tauri-build",
- "tauri-plugin-shell",
- "url",
- "webkit2gtk",
- "webview2-com 0.33.0",
- "windows 0.58.0",
-]
-
-[[package]]
 name = "ipnet"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2131,6 +2118,19 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "only-dm"
+version = "0.1.1"
+dependencies = [
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-shell",
+ "url",
+ "webkit2gtk",
+ "webview2-com 0.33.0",
+ "windows 0.58.0",
+]
 
 [[package]]
 name = "open"

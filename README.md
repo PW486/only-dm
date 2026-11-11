@@ -24,6 +24,10 @@ Most people open Instagram on their desktop just to reply to urgent direct messa
 
 **OnlyDM** changes that. Built on **Tauri v2** and **Rust**, OnlyDM provides a blazing-fast, distraction-free desktop client dedicated strictly to direct messaging. No explore feed, no endless reels, and no background resource hogs.
 
+<p align="center">
+  <img src="landing/assets/screenshot.png" alt="OnlyDM Desktop Client Screenshot" width="850" style="border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
+</p>
+
 ---
 
 ## ✨ Features

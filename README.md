@@ -1,11 +1,11 @@
-# OnlyDM — Desktop DM Client for Instagram
+# OnlyDM — Desktop Client for Instagram DM
 
 <p align="center">
   <img src="src-tauri/icons/128x128@2x.png" alt="OnlyDM Logo" width="108" height="108" style="border-radius: 24px;" />
 </p>
 
 <p align="center">
-  <strong>OnlyDM is a lightweight desktop direct message client for Instagram.</strong>
+  <strong>OnlyDM is a lightweight desktop client for Instagram DM.</strong>
 </p>
 
 <p align="center">

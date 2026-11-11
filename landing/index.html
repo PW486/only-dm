@@ -633,6 +633,33 @@
       margin-bottom: 24px;
     }
 
+    .macos-install-note {
+      margin-top: 24px;
+      padding: 20px 24px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: rgba(18, 20, 29, 0.65);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .macos-install-note strong {
+      color: var(--text);
+    }
+
+    .macos-install-note code {
+      display: block;
+      margin-top: 10px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.35);
+      color: #93c5fd;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
     /* FAQ */
     .faq-list {
       max-width: 800px;
@@ -1241,6 +1268,12 @@
           </a>
         </div>
       </div>
+      <aside class="macos-install-note">
+        <strong>macOS: app blocked on first launch?</strong>
+        After dragging OnlyDM into <code style="display: inline; margin: 0; padding: 2px 5px;">/Applications</code>, try opening it. If macOS still blocks it, run this command in Terminal and open OnlyDM again:
+        <code>sudo xattr -r -d com.apple.quarantine /Applications/OnlyDM.app</code>
+        Enter your Mac account password when prompted.
+      </aside>
     </div>
   </section>
 

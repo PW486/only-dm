@@ -63,7 +63,13 @@ Download the latest release for your operating system from the **[Releases](http
 - **Windows**: Coming soon in upcoming CI workflow (`.msi` / `.exe`)
 - **Linux**: Coming soon (`.deb` / `.AppImage`)
 
-> **Note for macOS users**: When opening pre-built community binaries for the first time, right-click the application and select **Open**, then confirm with **Open** in the gatekeeper dialog.
+> **macOS first launch:** After dragging `OnlyDM.app` into `/Applications`, try opening it. If macOS blocks the app, run this command in Terminal, then open OnlyDM again:
+>
+> ```bash
+> sudo xattr -r -d com.apple.quarantine /Applications/OnlyDM.app
+> ```
+>
+> Enter your Mac account password when prompted (Terminal does not show the characters as you type).
 
 ---
 

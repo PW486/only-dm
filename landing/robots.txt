@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://only-dm.vercel.app/sitemap.xml

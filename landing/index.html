@@ -119,8 +119,8 @@
     }
 
     .brand-logo {
-      width: 34px;
-      height: 34px;
+      width: 40px;
+      height: 40px;
       display: block;
       object-fit: contain;
     }
@@ -912,6 +912,17 @@
       gap: 16px;
     }
 
+    .footer-bottom a {
+      color: var(--text-muted);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      transition: color 0.2s ease;
+    }
+
+    .footer-bottom a:hover {
+      color: #fff;
+    }
+
     /* Responsive */
     @media (max-width: 992px) {
       .bento-grid, .download-grid {
@@ -1424,7 +1435,7 @@
       </div>
 
       <div class="footer-bottom">
-        <div>© 2026 OnlyDM. Open source software released under the MIT License.</div>
+        <div>© 2026 <a href="https://pw486.github.io/" target="_blank" rel="noopener">PW486</a>. Open source software released under the MIT License.</div>
         <div>Built with Tauri v2 &amp; Rust</div>
       </div>
     </div>

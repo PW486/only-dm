@@ -13,7 +13,7 @@
     <key>CFBundleDisplayName</key>
     <string>OnlyDM</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.1</string>
+    <string>0.1.2</string>
     <key>NSCameraUsageDescription</key>
     <string>OnlyDM requires camera access to capture photos or videos in chat.</string>
     <key>NSMicrophoneUsageDescription</key>

@@ -18,6 +18,60 @@
   const LOGOUT_BTN_ID = "ig-dm-logout-btn";
   const LOGOUT_MODAL_ID = "ig-dm-logout-modal-backdrop";
   const ACCOUNT_LOCK_ATTR = "data-ig-dm-account-locked";
+  const NOTES_TRAY_ATTR = "data-ig-dm-notes-tray";
+
+  // Localized labels for the "Your note" bubble that sits at the start of the
+  // Notes tray in the DM inbox. Instagram generates obfuscated class names on
+  // every build, so the tray is located by its visible/accessible text first.
+  const NOTES_TRAY_LABELS = new Set([
+    "your note",
+    "leave a note",
+    "add note",
+    "create note",
+    "내 노트",
+    "노트 남기기",
+    "노트 추가",
+    "노트 작성",
+    "あなたのノート",
+    "ノートを残す",
+    "ノートを追加",
+    "你的笔记",
+    "留下笔记",
+    "添加笔记",
+    "你的便利貼",
+    "留下便利貼",
+    "新增便利貼",
+    "tu nota",
+    "dejar una nota",
+    "añadir nota",
+    "votre note",
+    "laisser une note",
+    "ajouter une note",
+    "deine notiz",
+    "hinterlasse eine notiz",
+    "notiz hinzufügen",
+    "sua nota",
+    "deixar uma nota",
+    "adicionar nota",
+    "la tua nota",
+    "lascia una nota",
+    "aggiungi nota",
+    "ваша заметка",
+    "оставить заметку",
+    "добавить заметку",
+    "ghi chú của bạn",
+    "để lại ghi chú",
+    "thêm ghi chú",
+    "โน้ตของคุณ",
+    "ฝากโน้ต",
+    "เพิ่มโน้ต",
+    "catatan anda",
+    "tinggalkan catatan",
+    "tambah catatan",
+    "notun",
+    "not bırak",
+    "not ekle",
+  ]);
 
   // Block Instagram's incoming-call ringtone without affecting voice messages or
   // other media. The call modal uses an autoplaying, looping <audio> element.
@@ -522,6 +576,22 @@
     audio[autoplay][loop] {
       display: none !important;
     }
+
+    /* ==========================================================================
+       7. Hide the Instagram Notes Tray in the DM Inbox
+       ========================================================================== */
+
+    [${NOTES_TRAY_ATTR}="true"] {
+      display: none !important;
+      height: 0px !important;
+      min-height: 0px !important;
+      max-height: 0px !important;
+      margin: 0px !important;
+      padding: 0px !important;
+      border: none !important;
+      overflow: hidden !important;
+      pointer-events: none !important;
+    }
   `;
 
   /**
@@ -992,6 +1062,214 @@
     }
   }
 
+  function normalizeNoteLabel(value) {
+    return (value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase()
+      .replace(/[.…:]+$/, "");
+  }
+
+  /**
+   * Returns true when an element can safely be treated as the Notes tray:
+   * it sits in the left DM column, has the shape of a single-row strip, and
+   * contains neither the search box nor conversation rows/header controls.
+   */
+  function isNotesTrayCandidate(el, dmNav, minTop) {
+    if (
+      !el ||
+      el === dmNav ||
+      el === document.body ||
+      el === document.documentElement
+    ) {
+      return false;
+    }
+    if (el.closest(`[${NOTES_TRAY_ATTR}="true"]`)) {
+      return false;
+    }
+    if (el.getAttribute("aria-label") === "Chats") {
+      return false;
+    }
+
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 140 || rect.width > window.innerWidth) return false;
+    if (rect.height < 36 || rect.height > 220) return false;
+    if (rect.left > window.innerWidth * 0.6) return false;
+    if (rect.top < minTop) return false;
+
+    if (el.querySelector('input, textarea, [contenteditable="true"], [role="textbox"]')) {
+      return false;
+    }
+    if (el.querySelector('abbr, time, a[href^="/direct/t/"], [aria-label="Chats"]')) {
+      return false;
+    }
+
+    const composeIcon = el.querySelector(
+      [
+        'svg[aria-label="New message"]',
+        'svg[aria-label="새로운 메시지"]',
+        'svg[aria-label="新規メッセージ"]',
+        'svg[aria-label="新消息"]',
+        'svg[aria-label="新訊息"]',
+        'svg[aria-label="Nuevo mensaje"]',
+        'svg[aria-label="Nouveau message"]',
+        'svg[aria-label="Neue Nachricht"]',
+        'svg[aria-label="Nova mensagem"]',
+        `#${LOGOUT_BTN_ID}`,
+      ].join(", ")
+    );
+    if (composeIcon) return false;
+    if (!el.querySelector("img")) return false;
+
+    return true;
+  }
+
+  /**
+   * Walks up from a candidate and returns the outermost ancestor that still
+   * looks like the one-row Notes tray (stopping before the full DM sidebar).
+   */
+  function outermostNotesTrayCandidate(start, dmNav, minTop) {
+    let node = start;
+    let best = null;
+
+    for (let depth = 0; depth < 10 && node && node !== dmNav; depth++) {
+      if (isNotesTrayCandidate(node, dmNav, minTop)) {
+        best = node;
+      } else if (best) {
+        break;
+      }
+      node = node.parentElement;
+    }
+
+    return best;
+  }
+
+  /**
+   * Finds the Notes strip by the localized "Your note" / "Leave a note" label,
+   * then walks up to the outermost wrapper that still looks like a one-row tray.
+   */
+  function findNotesTrayByLabel(dmNav, minTop) {
+    const elements = dmNav.querySelectorAll("span, div");
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      if (el.closest(`[${NOTES_TRAY_ATTR}="true"]`)) continue;
+
+      const labels = [el.getAttribute("aria-label"), el.textContent];
+      let matches = false;
+      for (let j = 0; j < labels.length; j++) {
+        if (NOTES_TRAY_LABELS.has(normalizeNoteLabel(labels[j]))) {
+          matches = true;
+          break;
+        }
+      }
+      if (!matches) continue;
+
+      const tray = outermostNotesTrayCandidate(el, dmNav, minTop);
+      if (tray) return tray;
+    }
+    return null;
+  }
+
+  /**
+   * Fallback for when the viewer already posted a note (so "Your note" is gone):
+   * the tray is the shallow horizontal scroller holding multiple note avatars.
+   */
+  function findNotesTrayByStructure(dmNav, minTop) {
+    const nodes = dmNav.querySelectorAll("div");
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      if (el.closest(`[${NOTES_TRAY_ATTR}="true"]`)) continue;
+
+      const style = window.getComputedStyle(el);
+      if (style.overflowX !== "auto" && style.overflowX !== "scroll") continue;
+      if (!isNotesTrayCandidate(el, dmNav, minTop)) continue;
+      if (el.querySelectorAll("img").length < 2) continue;
+      if (el.scrollHeight > el.clientHeight + 8) continue;
+
+      return outermostNotesTrayCandidate(el, dmNav, minTop);
+    }
+    return null;
+  }
+
+  /**
+   * Last-resort detection: group small avatar buttons that share the same top
+   * edge. Conversation rows are stacked vertically, so they cannot form a row.
+   */
+  function findNotesTrayByCards(dmNav, minTop) {
+    const cards = [];
+    const buttons = dmNav.querySelectorAll('[role="button"], button');
+
+    for (let i = 0; i < buttons.length; i++) {
+      const el = buttons[i];
+      if (el.closest(`[${NOTES_TRAY_ATTR}="true"]`)) continue;
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 40 || rect.width > 190) continue;
+      if (rect.height < 50 || rect.height > 170) continue;
+      if (rect.left > window.innerWidth * 0.6) continue;
+      if (!el.querySelector("img")) continue;
+      if (el.querySelector('abbr, time, input, textarea, [role="textbox"]')) {
+        continue;
+      }
+
+      cards.push({ el: el, rect: rect });
+    }
+
+    for (let i = 0; i < cards.length; i++) {
+      const anchor = cards[i];
+      const row = [anchor];
+
+      for (let j = 0; j < cards.length; j++) {
+        if (i === j) continue;
+        const other = cards[j];
+        if (Math.abs(other.rect.top - anchor.rect.top) > 10) continue;
+        if (Math.abs(other.rect.left - anchor.rect.left) < 8) continue;
+        row.push(other);
+      }
+      if (row.length < 2) continue;
+
+      let parent = anchor.el.parentElement;
+      while (
+        parent &&
+        parent !== dmNav &&
+        !row.every((card) => parent.contains(card.el))
+      ) {
+        parent = parent.parentElement;
+      }
+
+      if (parent && parent !== dmNav && isNotesTrayCandidate(parent, dmNav, minTop)) {
+        return parent;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Removes the "Your note" / friends' notes strip from the DM inbox.
+   */
+  function hideNotesTray() {
+    if (!window.location.pathname.startsWith("/direct")) return;
+
+    const mainEl = document.querySelector('main[role="main"]');
+    if (!mainEl) return;
+    const dmNav = mainEl.querySelector('div[role="navigation"]') || mainEl;
+
+    const composeBtn = findComposeButton();
+    const composeRect = composeBtn ? composeBtn.getBoundingClientRect() : null;
+    const minTop =
+      composeRect && composeRect.height > 0 ? composeRect.bottom - 4 : 0;
+
+    const tray =
+      findNotesTrayByLabel(dmNav, minTop) ||
+      findNotesTrayByStructure(dmNav, minTop) ||
+      findNotesTrayByCards(dmNav, minTop);
+
+    if (tray) {
+      tray.setAttribute(NOTES_TRAY_ATTR, "true");
+    }
+  }
+
   /**
    * Lightweight O(1) scrollbar clipper: walks up at most 8 parent nodes from a single
    * DM thread row to find the vertical scroll container and clips its right scrollbar
@@ -1432,6 +1710,7 @@
     }
     injectStyles();
     hideCallAndVoiceButtons();
+    hideNotesTray();
     ensureLogoutButton();
     lockDmAccountSwitcher();
     suppressIncomingCalls();
@@ -1444,6 +1723,7 @@
   window.addEventListener("DOMContentLoaded", applyOptimizations, { once: true });
   window.addEventListener("resize", () => {
     hideCallAndVoiceButtons();
+    hideNotesTray();
     ensureLogoutButton();
     lockDmAccountSwitcher();
     hideGlobalNavigationAndEliminateBlankSpace();

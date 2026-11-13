@@ -1,6 +1,6 @@
 [package]
 name = "only-dm"
-version = "0.1.1"
+version = "0.1.2"
 description = "OnlyDM is a lightweight desktop direct message client for Instagram"
 authors = ["you"]
 edition = "2021"

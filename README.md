@@ -59,7 +59,7 @@ Most people open Instagram on their desktop just to reply to urgent direct messa
 
 Download the latest release for your operating system from the **[Releases](https://github.com/PW486/only-dm/releases)** page:
 
-- **macOS (Apple Silicon / Intel)**: `OnlyDM_0.1.1_aarch64.dmg`
+- **macOS (Apple Silicon / Intel)**: `OnlyDM_0.1.2_aarch64.dmg`
 - **Windows**: Coming soon in upcoming CI workflow (`.msi` / `.exe`)
 - **Linux**: Coming soon (`.deb` / `.AppImage`)
 

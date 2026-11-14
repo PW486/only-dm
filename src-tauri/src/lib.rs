@@ -291,7 +291,7 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .menu(|app| build_app_menu(app))
+        .menu(build_app_menu)
         .on_menu_event(|app, event| {
             if event.id() == "logout" {
                 request_native_logout(app);

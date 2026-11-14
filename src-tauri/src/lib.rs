@@ -2,8 +2,11 @@ use std::fs;
 use tauri::{
     menu::{AboutMetadata, Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem, Submenu},
     webview::{NewWindowResponse, PageLoadEvent},
-    AppHandle, Manager, RunEvent, Runtime, WebviewWindowBuilder, WindowEvent,
+    AppHandle, Manager, Runtime, WebviewWindowBuilder,
 };
+
+#[cfg(target_os = "macos")]
+use tauri::{RunEvent, WindowEvent};
 use tauri_plugin_shell::ShellExt;
 use url::Url;
 
@@ -289,25 +292,26 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
             if event.id() == "logout" {
                 request_native_logout(app);
             }
-        })
-        .on_window_event(|window, event| {
-            // Like KakaoTalk / WhatsApp on macOS: closing the window (red X button or Cmd+W)
-            // hides the window instead of quitting the app so it can be reopened from the Dock.
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                #[cfg(target_os = "macos")]
-                {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
-            }
-        })
+        });
+
+    #[cfg(target_os = "macos")]
+    let builder = builder.on_window_event(|window, event| {
+        // Like KakaoTalk / WhatsApp on macOS: closing the window (red X button or Cmd+W)
+        // hides the window instead of quitting the app so it can be reopened from the Dock.
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+    });
+
+    let app = builder
         .setup(|app| {
             let app_handle = app.handle().clone();
 
@@ -386,10 +390,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building OnlyDM application");
 
-    app.run(|app_handle, event| {
+    app.run(|_app_handle, _event| {
         #[cfg(target_os = "macos")]
-        if let RunEvent::Reopen { .. } = event {
-            if let Some(win) = app_handle.get_webview_window("main") {
+        if let RunEvent::Reopen { .. } = _event {
+            if let Some(win) = _app_handle.get_webview_window("main") {
                 let _ = win.show();
                 let _ = win.unminimize();
                 let _ = win.set_focus();

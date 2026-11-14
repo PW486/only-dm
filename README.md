@@ -33,7 +33,7 @@ Most people open Instagram on their desktop just to reply to urgent direct messa
 ## ✨ Features
 
 - **Direct Messages Only**: Automatically redirects home feed visits back to `/direct/inbox/`. Keeps you locked into messaging without algorithmic temptations.
-- **Featherlight Footprint**: Consumes under **50MB of RAM** (up to 10× lighter than typical Electron wrappers) with a **~5MB installer bundle**.
+- **Featherlight Footprint**: Consumes under **50MB of RAM** (up to 10× lighter than typical Electron wrappers) with an **under 10MB installer bundle**.
 - **Distraction-Free Workspace**: Automatically removes unnecessary side navigation panels, bottom paddings, and noisy promotion banners.
 - **Quiet & Calm Messaging**: Suppresses unsolicited incoming ringtones and noisy call prompts while preserving normal media playback and audio clips.
 - **Native OS Integration**: Native macOS app menus, keyboard shortcuts, window state preservation, and localized session management.
@@ -47,7 +47,7 @@ Most people open Instagram on their desktop just to reply to urgent direct messa
 | Metric | OnlyDM (Tauri v2 + Rust) | Typical Electron Client |
 | :--- | :--- | :--- |
 | **Idle Memory Usage** | **~35 MB – 55 MB** | 400 MB – 850 MB |
-| **Installer Size (macOS)** | **~4.9 MB (.dmg)** | 110 MB – 180 MB |
+| **Installer Size (macOS)** | **Under 10 MB (.dmg)** | 110 MB – 180 MB |
 | **Cold Startup Time** | **< 400 ms** | 2.5 s – 4.0 s |
 | **Binary Security** | Rust memory safety | Node.js / Chromium runtime |
 
@@ -57,11 +57,11 @@ Most people open Instagram on their desktop just to reply to urgent direct messa
 
 ### Pre-built Binaries
 
-Download the latest release for your operating system from the **[Releases](https://github.com/PW486/only-dm/releases)** page:
+Download the latest release for your operating system from the **[Releases](https://github.com/PW486/only-dm/releases/latest)** page:
 
-- **macOS (Apple Silicon / Intel)**: `OnlyDM_0.1.2_aarch64.dmg`
-- **Windows**: Coming soon in upcoming CI workflow (`.msi` / `.exe`)
-- **Linux**: Coming soon (`.deb` / `.AppImage`)
+- **macOS (Universal: Apple Silicon + Intel)**: `.dmg`
+- **Windows (64-bit)**: `.msi` or `-setup.exe`
+- **Linux (64-bit)**: `.AppImage`, `.deb`, or `.rpm`
 
 > **macOS first launch:** After dragging `OnlyDM.app` into `/Applications`, try opening it. If macOS blocks the app, run this command in Terminal, then open OnlyDM again:
 >
@@ -70,6 +70,14 @@ Download the latest release for your operating system from the **[Releases](http
 > ```
 >
 > Enter your Mac account password when prompted (Terminal does not show the characters as you type).
+
+> **Windows first launch:** The installers are not code-signed yet. If SmartScreen shows "Windows protected your PC", choose **More info** and then **Run anyway**.
+
+### Automatic Updates
+
+OnlyDM checks for updates on launch in release builds, and you can also use **Check for Updates...** from the application menu.
+
+The first updater-enabled release must be installed manually. Users on `v0.1.2` or older need to download the latest release once; after that, updates are delivered in-app.
 
 ---
 

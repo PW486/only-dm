@@ -1,4 +1,5 @@
 use std::fs;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
     menu::{AboutMetadata, Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem, Submenu},
     webview::{NewWindowResponse, PageLoadEvent},
@@ -7,11 +8,17 @@ use tauri::{
 
 #[cfg(target_os = "macos")]
 use tauri::{RunEvent, WindowEvent};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
 const APP_DISPLAY_NAME: &str = "OnlyDM";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Prevents the startup check and the menu item from opening two update
+/// dialogs at the same time.
+static UPDATE_CHECK_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 /// Embedded initialization script for CSS injection, sidebar/bottom gap removal,
 /// call/voice button hiding, localized logout UI, and DM + media popup navigation lock.
@@ -28,7 +35,8 @@ const DESKTOP_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Appl
 const DESKTOP_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
 const LOGOUT_TRIGGER_PATH: &str = "/__ig_dm_logout__";
-const LOGIN_REDIRECT_URL: &str = "https://www.instagram.com/accounts/login/?next=%2Fdirect%2Finbox%2F";
+const LOGIN_REDIRECT_URL: &str =
+    "https://www.instagram.com/accounts/login/?next=%2Fdirect%2Finbox%2F";
 
 /// Evaluated when the app menu's "Log Out" item is clicked. Prefers the page's
 /// logout routine (which calls Instagram's logout API, invalidating the session
@@ -81,7 +89,8 @@ fn classify_frame_navigation(url: &Url) -> NavigationAction {
     let lower_path = path.to_lowercase();
 
     // Special internal signal triggered by the in-app Logout button
-    if (host == "instagram.com" || host.ends_with(".instagram.com")) && path == LOGOUT_TRIGGER_PATH {
+    if (host == "instagram.com" || host.ends_with(".instagram.com")) && path == LOGOUT_TRIGGER_PATH
+    {
         return NavigationAction::Logout;
     }
 
@@ -141,7 +150,8 @@ fn classify_popup_window(url: &Url) -> NavigationAction {
 
     let path = url.path();
 
-    if (host == "instagram.com" || host.ends_with(".instagram.com")) && path == LOGOUT_TRIGGER_PATH {
+    if (host == "instagram.com" || host.ends_with(".instagram.com")) && path == LOGOUT_TRIGGER_PATH
+    {
         return NavigationAction::Logout;
     }
 
@@ -215,6 +225,103 @@ fn set_logout_menu_enabled<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
     }
 }
 
+fn show_update_error(app: &AppHandle, err: &impl std::fmt::Display) {
+    app.dialog()
+        .message(format!("Could not update OnlyDM.\n\n{err}"))
+        .title("Update Error")
+        .kind(MessageDialogKind::Error)
+        .buttons(MessageDialogButtons::Ok)
+        .blocking_show();
+}
+
+/// Spawns an update check off the main thread. `interactive` controls whether
+/// "already up to date" and network errors are shown to the user.
+fn spawn_update_check(app: AppHandle, interactive: bool) {
+    if UPDATE_CHECK_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    tauri::async_runtime::spawn(async move {
+        check_for_updates(app, interactive).await;
+        UPDATE_CHECK_IN_PROGRESS.store(false, Ordering::SeqCst);
+    });
+}
+
+async fn check_for_updates(app: AppHandle, interactive: bool) {
+    let updater = match app.updater() {
+        Ok(updater) => updater,
+        Err(err) => {
+            if interactive {
+                show_update_error(&app, &err);
+            } else {
+                eprintln!("Failed to initialize updater: {err}");
+            }
+            return;
+        }
+    };
+
+    match updater.check().await {
+        Ok(Some(update)) => {
+            let notes = update.body.as_deref().unwrap_or("").trim();
+            let mut message = format!(
+                "OnlyDM {} is available. You are running {}.",
+                update.version, update.current_version
+            );
+
+            if !notes.is_empty() {
+                let summary: String = notes.chars().take(1200).collect();
+                message.push_str("\n\n");
+                message.push_str(&summary);
+            }
+
+            let should_update = app
+                .dialog()
+                .message(message)
+                .title("Update Available")
+                .kind(MessageDialogKind::Info)
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "Update Now".to_string(),
+                    "Later".to_string(),
+                ))
+                .blocking_show();
+
+            if !should_update {
+                return;
+            }
+
+            match update.download_and_install(|_, _| {}, || {}).await {
+                Ok(()) => {
+                    app.dialog()
+                        .message("The update was installed successfully. OnlyDM will now restart.")
+                        .title("Update Installed")
+                        .kind(MessageDialogKind::Info)
+                        .buttons(MessageDialogButtons::OkCustom("Restart".to_string()))
+                        .blocking_show();
+                    app.restart();
+                }
+                Err(err) => show_update_error(&app, &err),
+            }
+        }
+        Ok(None) => {
+            if interactive {
+                app.dialog()
+                    .message(format!("OnlyDM {APP_VERSION} is up to date."))
+                    .title("No Updates Available")
+                    .kind(MessageDialogKind::Info)
+                    .buttons(MessageDialogButtons::Ok)
+                    .blocking_show();
+            }
+        }
+        Err(err) => {
+            if interactive {
+                show_update_error(&app, &err);
+            } else {
+                eprintln!("Update check failed: {err}");
+            }
+        }
+    }
+}
+
 /// Builds the application menu bar with "OnlyDM" as the explicit display name
 /// (including in the "About OnlyDM" dialog) instead of the Cargo package slug.
 fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
@@ -232,6 +339,9 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         ..Default::default()
     };
 
+    let check_updates_item =
+        MenuItemBuilder::with_id("check-updates", "Check for Updates...").build(app)?;
+
     let logout_item = MenuItemBuilder::with_id("logout", "Log Out")
         .accelerator("CmdOrCtrl+Shift+L")
         .build(app)?;
@@ -247,6 +357,7 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
                 Some(&format!("About {}", APP_DISPLAY_NAME)),
                 Some(about_metadata),
             )?,
+            &check_updates_item,
             &PredefinedMenuItem::separator(app)?,
             &logout_item,
             &PredefinedMenuItem::separator(app)?,
@@ -294,10 +405,14 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
             if event.id() == "logout" {
                 request_native_logout(app);
+            } else if event.id() == "check-updates" {
+                spawn_update_check(app.clone(), true);
             }
         });
 
@@ -384,6 +499,11 @@ pub fn run() {
                     }
                 })
                 .build()?;
+
+            // Check for updates once per launch in release builds. The check is
+            // asynchronous and silent when offline or already up to date.
+            #[cfg(not(debug_assertions))]
+            spawn_update_check(app_handle.clone(), false);
 
             Ok(())
         })

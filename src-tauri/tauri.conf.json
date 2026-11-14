@@ -41,8 +41,20 @@
     "macOS": {
       "minimumSystemVersion": "11.0",
       "bundleVersion": "3",
+      "signingIdentity": "-",
       "infoPlist": "Info.plist",
       "entitlements": "Entitlements.plist"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc0OUY2OTI1Rjk0RjU0RTAKUldUZ1ZFLzVKV21mZERuTUhtakY2U01Za2NkNExEWjhwckZXR1RFYmp0V1lRRXBBOXk5QU5YeTUK",
+      "endpoints": [
+        "https://github.com/PW486/only-dm/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

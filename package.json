@@ -6,7 +6,10 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "version:set": "node scripts/set-version.mjs",
+    "version:check": "node scripts/set-version.mjs --check",
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"

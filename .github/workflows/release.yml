@@ -165,14 +165,20 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" ]]; then
-            echo "TAURI_SIGNING_PRIVATE_KEY is not configured." >&2
-            exit 1
-          fi
-          if [[ "$TAURI_SIGNING_PRIVATE_KEY" != *"untrusted comment"* ]]; then
-            echo "TAURI_SIGNING_PRIVATE_KEY must contain the key content, not a file path." >&2
-            exit 1
-          fi
+          node - <<'NODE'
+          const key = (process.env.TAURI_SIGNING_PRIVATE_KEY || "").trim();
+          if (!key) {
+            console.error("TAURI_SIGNING_PRIVATE_KEY is not configured.");
+            process.exit(1);
+          }
+          const decoded = Buffer.from(key, "base64").toString("utf8");
+          if (!decoded.startsWith("untrusted comment:")) {
+            console.error(
+              "TAURI_SIGNING_PRIVATE_KEY must be the base64-encoded key content (the contents of the .key file), not a file path.",
+            );
+            process.exit(1);
+          }
+          NODE
 
       - name: Build and upload release assets
         uses: tauri-apps/tauri-action@v1

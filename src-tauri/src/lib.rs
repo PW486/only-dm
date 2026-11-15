@@ -20,6 +20,40 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// dialogs at the same time.
 static UPDATE_CHECK_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
+/// Guards against two concurrent attempts to recreate the main window.
+static WINDOW_CREATION_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// Set while the macOS close button / Cmd+W is tearing the window down. The
+/// window is intentionally not hidden anymore: closing it destroys the webview
+/// so Instagram's memory is released, and the Dock icon recreates it on demand.
+#[cfg(target_os = "macos")]
+static WINDOW_CLOSING: AtomicBool = AtomicBool::new(false);
+
+/// A Dock click that arrives while the window is still being destroyed should
+/// reopen the app as soon as teardown finishes instead of being lost.
+#[cfg(target_os = "macos")]
+static RECREATE_AFTER_DESTROY: AtomicBool = AtomicBool::new(false);
+
+const WINDOW_STATE_FILE: &str = "window-state.json";
+
+#[derive(Clone, Copy)]
+struct WindowGeometry {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    maximized: bool,
+    fullscreen: bool,
+}
+
+struct WindowCreationGuard;
+
+impl Drop for WindowCreationGuard {
+    fn drop(&mut self) {
+        WINDOW_CREATION_IN_PROGRESS.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Embedded initialization script for CSS injection, sidebar/bottom gap removal,
 /// call/voice button hiding, localized logout UI, and DM + media popup navigation lock.
 const INIT_SCRIPT: &str = include_str!("../scripts/inject.js");
@@ -211,6 +245,181 @@ fn request_native_logout(app_handle: &AppHandle) {
         }
     }
     finish_native_logout(app_handle);
+}
+
+/// Reads the last saved window geometry, if it is still usable.
+fn load_window_geometry(app: &AppHandle) -> Option<WindowGeometry> {
+    let path = app.path().app_data_dir().ok()?.join(WINDOW_STATE_FILE);
+    let contents = fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&contents).ok()?;
+
+    let geometry = WindowGeometry {
+        x: value.get("x")?.as_f64()?,
+        y: value.get("y")?.as_f64()?,
+        width: value.get("width")?.as_f64()?,
+        height: value.get("height")?.as_f64()?,
+        maximized: value
+            .get("maximized")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        fullscreen: value
+            .get("fullscreen")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    };
+
+    let sane = geometry.x.is_finite()
+        && geometry.y.is_finite()
+        && geometry.width.is_finite()
+        && geometry.height.is_finite()
+        && geometry.width >= 320.0
+        && geometry.height >= 400.0
+        && geometry.width <= 20_000.0
+        && geometry.height <= 20_000.0;
+
+    sane.then_some(geometry)
+}
+
+/// Persists the window geometry for the next recreation (Dock click or app launch).
+#[cfg(target_os = "macos")]
+fn save_window_geometry(app: &AppHandle, geometry: WindowGeometry) {
+    let app_data_dir = match app.path().app_data_dir() {
+        Ok(dir) => dir,
+        Err(err) => {
+            eprintln!("Failed to resolve app_data_dir for window state: {err}");
+            return;
+        }
+    };
+
+    if let Err(err) = fs::create_dir_all(&app_data_dir) {
+        eprintln!("Failed to create app_data_dir for window state: {err}");
+        return;
+    }
+
+    let payload = serde_json::json!({
+        "x": geometry.x,
+        "y": geometry.y,
+        "width": geometry.width,
+        "height": geometry.height,
+        "maximized": geometry.maximized,
+        "fullscreen": geometry.fullscreen,
+    });
+
+    if let Err(err) = fs::write(app_data_dir.join(WINDOW_STATE_FILE), payload.to_string()) {
+        eprintln!("Failed to save window state: {err}");
+    }
+}
+
+/// Captures logical window bounds, taking the current display scale into account.
+#[cfg(target_os = "macos")]
+fn capture_window_geometry<R: Runtime>(window: &tauri::Window<R>) -> Option<WindowGeometry> {
+    let scale_factor = window.scale_factor().ok()?;
+    if !scale_factor.is_finite() || scale_factor <= 0.0 {
+        return None;
+    }
+
+    let position = window.outer_position().ok()?;
+    let size = window.inner_size().ok()?;
+
+    Some(WindowGeometry {
+        x: position.x as f64 / scale_factor,
+        y: position.y as f64 / scale_factor,
+        width: size.width as f64 / scale_factor,
+        height: size.height as f64 / scale_factor,
+        maximized: window.is_maximized().unwrap_or(false),
+        fullscreen: window.is_fullscreen().unwrap_or(false),
+    })
+}
+
+/// Creates the main webview window. Called once from setup and again every time
+/// the user reopens the app from the Dock after closing its window.
+fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
+    if app.get_webview_window("main").is_some() {
+        return Ok(());
+    }
+
+    if WINDOW_CREATION_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    let _creation_guard = WindowCreationGuard;
+
+    let persistent_data_dir = app.path().app_data_dir()?.join("webview-data");
+    fs::create_dir_all(&persistent_data_dir)?;
+
+    let mut window_config = app
+        .config()
+        .app
+        .windows
+        .first()
+        .expect("Missing main window configuration in tauri.conf.json")
+        .clone();
+
+    if let Some(geometry) = load_window_geometry(app) {
+        window_config.maximized = geometry.maximized;
+        window_config.fullscreen = geometry.fullscreen;
+
+        // A maximized/fullscreen window uses the screen bounds; keep the
+        // configured default size so leaving that state still gives a sane window.
+        if !geometry.maximized && !geometry.fullscreen {
+            window_config.center = false;
+            window_config.x = Some(geometry.x);
+            window_config.y = Some(geometry.y);
+            window_config.width = geometry.width;
+            window_config.height = geometry.height;
+        }
+    }
+
+    let nav_handle = app.clone();
+    let popup_handle = app.clone();
+
+    let mut builder = WebviewWindowBuilder::from_config(app, &window_config)?
+        .user_agent(DESKTOP_USER_AGENT)
+        .data_directory(persistent_data_dir)
+        .incognito(false)
+        .initialization_script(INIT_SCRIPT);
+
+    if let Some(default_icon) = app.default_window_icon().cloned() {
+        builder = builder.icon(default_icon)?;
+    }
+
+    builder
+        .on_page_load(|window, payload| {
+            let is_login_page = payload.url().path().starts_with("/accounts/login");
+            set_logout_menu_enabled(window.app_handle(), !is_login_page);
+            if payload.event() == PageLoadEvent::Finished {
+                let _ = window.eval(INIT_SCRIPT);
+            }
+        })
+        .on_navigation(move |url| match classify_frame_navigation(url) {
+            NavigationAction::Allow => true,
+            NavigationAction::Logout => {
+                finish_native_logout(&nav_handle);
+                false
+            }
+            NavigationAction::OpenExternal(external_url) => {
+                open_in_system_browser(&nav_handle, &external_url);
+                false
+            }
+        })
+        .on_new_window(move |url, _features| match classify_popup_window(&url) {
+            NavigationAction::Allow => {
+                if let Some(win) = popup_handle.get_webview_window("main") {
+                    let _ = win.navigate(url);
+                }
+                NewWindowResponse::Deny
+            }
+            NavigationAction::Logout => {
+                finish_native_logout(&popup_handle);
+                NewWindowResponse::Deny
+            }
+            NavigationAction::OpenExternal(external_url) => {
+                open_in_system_browser(&popup_handle, &external_url);
+                NewWindowResponse::Deny
+            }
+        })
+        .build()?;
+
+    Ok(())
 }
 
 /// Enables or disables the app menu's "Log Out" item. The item is disabled on the
@@ -418,11 +627,31 @@ pub fn run() {
 
     #[cfg(target_os = "macos")]
     let builder = builder.on_window_event(|window, event| {
-        // Like KakaoTalk / WhatsApp on macOS: closing the window (red X button or Cmd+W)
-        // hides the window instead of quitting the app so it can be reopened from the Dock.
-        if let WindowEvent::CloseRequested { api, .. } = event {
-            api.prevent_close();
-            let _ = window.hide();
+        match event {
+            WindowEvent::CloseRequested { .. } => {
+                // Do not prevent the close: destroying the window also destroys the
+                // WKWebView and releases Instagram's page memory. The app itself stays
+                // alive via the ExitRequested handler below and is recreated on reopen.
+                WINDOW_CLOSING.store(true, Ordering::SeqCst);
+                if let Some(geometry) = capture_window_geometry(window) {
+                    save_window_geometry(window.app_handle(), geometry);
+                }
+            }
+            WindowEvent::Destroyed => {
+                WINDOW_CLOSING.store(false, Ordering::SeqCst);
+                set_logout_menu_enabled(window.app_handle(), false);
+
+                if RECREATE_AFTER_DESTROY.swap(false, Ordering::SeqCst) {
+                    let app_handle = window.app_handle().clone();
+                    let recreate_handle = app_handle.clone();
+                    let _ = app_handle.run_on_main_thread(move || {
+                        if let Err(err) = create_main_window(&recreate_handle) {
+                            eprintln!("Failed to recreate main window: {err}");
+                        }
+                    });
+                }
+            }
+            _ => {}
         }
     });
 
@@ -430,75 +659,9 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
 
-            // 1. Resolve and create a persistent WebView data directory for cookies & localStorage
-            let persistent_data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("Failed to resolve app_data_dir")
-                .join("webview-data");
-
-            fs::create_dir_all(&persistent_data_dir)
-                .expect("Failed to create persistent webview data directory");
-
-            // 2. Load the window configuration from tauri.conf.json
-            let window_config = app
-                .config()
-                .app
-                .windows
-                .first()
-                .expect("Missing main window configuration in tauri.conf.json")
-                .clone();
-
-            let nav_handle = app_handle.clone();
-            let popup_handle = app_handle.clone();
-
-            // 3. Build the WebView window with persistent storage, CSS injection, and link guards
-            let mut builder = WebviewWindowBuilder::from_config(&app_handle, &window_config)?
-                .user_agent(DESKTOP_USER_AGENT)
-                .data_directory(persistent_data_dir)
-                .incognito(false)
-                .initialization_script(INIT_SCRIPT);
-
-            if let Some(default_icon) = app.default_window_icon().cloned() {
-                builder = builder.icon(default_icon)?;
-            }
-
-            builder
-                .on_page_load(|window, payload| {
-                    let is_login_page = payload.url().path().starts_with("/accounts/login");
-                    set_logout_menu_enabled(window.app_handle(), !is_login_page);
-                    if payload.event() == PageLoadEvent::Finished {
-                        let _ = window.eval(INIT_SCRIPT);
-                    }
-                })
-                .on_navigation(move |url| match classify_frame_navigation(url) {
-                    NavigationAction::Allow => true,
-                    NavigationAction::Logout => {
-                        finish_native_logout(&nav_handle);
-                        false
-                    }
-                    NavigationAction::OpenExternal(external_url) => {
-                        open_in_system_browser(&nav_handle, &external_url);
-                        false
-                    }
-                })
-                .on_new_window(move |url, _features| match classify_popup_window(&url) {
-                    NavigationAction::Allow => {
-                        if let Some(win) = popup_handle.get_webview_window("main") {
-                            let _ = win.navigate(url);
-                        }
-                        NewWindowResponse::Deny
-                    }
-                    NavigationAction::Logout => {
-                        finish_native_logout(&popup_handle);
-                        NewWindowResponse::Deny
-                    }
-                    NavigationAction::OpenExternal(external_url) => {
-                        open_in_system_browser(&popup_handle, &external_url);
-                        NewWindowResponse::Deny
-                    }
-                })
-                .build()?;
+            // Builds the main window, restores its last geometry, and wires up the
+            // persistent WebView data directory, CSS injection, and link guards.
+            create_main_window(&app_handle)?;
 
             // Check for updates once per launch in release builds. The check is
             // asynchronous and silent when offline or already up to date.
@@ -512,12 +675,33 @@ pub fn run() {
 
     app.run(|_app_handle, _event| {
         #[cfg(target_os = "macos")]
-        if let RunEvent::Reopen { .. } = _event {
-            if let Some(win) = _app_handle.get_webview_window("main") {
-                let _ = win.show();
-                let _ = win.unminimize();
-                let _ = win.set_focus();
+        match _event {
+            RunEvent::ExitRequested {
+                code: None, api, ..
+            } => {
+                // The last window was destroyed (red X / Cmd+W). Keep the process
+                // alive so the Dock icon can recreate it later. Explicit exits such
+                // as Cmd+Q carry a code and are allowed through.
+                api.prevent_exit();
             }
+            RunEvent::ExitRequested { code: Some(_), .. } => {
+                // Do not recreate a window while an explicit quit/restart is running.
+                RECREATE_AFTER_DESTROY.store(false, Ordering::SeqCst);
+            }
+            RunEvent::Reopen { .. } => {
+                if let Some(win) = _app_handle.get_webview_window("main") {
+                    if WINDOW_CLOSING.load(Ordering::SeqCst) {
+                        RECREATE_AFTER_DESTROY.store(true, Ordering::SeqCst);
+                    } else {
+                        let _ = win.show();
+                        let _ = win.unminimize();
+                        let _ = win.set_focus();
+                    }
+                } else if let Err(err) = create_main_window(_app_handle) {
+                    eprintln!("Failed to recreate main window: {err}");
+                }
+            }
+            _ => {}
         }
     });
 }

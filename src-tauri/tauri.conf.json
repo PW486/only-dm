@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "OnlyDM",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "com.onlydm.desktop",
   "build": {
     "frontendDist": "../dist"
@@ -40,7 +40,7 @@
     ],
     "macOS": {
       "minimumSystemVersion": "11.0",
-      "bundleVersion": "4",
+      "bundleVersion": "5",
       "signingIdentity": "-",
       "infoPlist": "Info.plist",
       "entitlements": "Entitlements.plist"

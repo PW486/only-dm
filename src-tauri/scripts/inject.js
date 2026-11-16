@@ -7,6 +7,33 @@
   }
   window.__IG_DM_INITIALIZED__ = true;
 
+  // Paint the early document background with the system theme. The native window
+  // background already matches, but the WebView canvas stays white until a
+  // document background is set, which flashes in dark mode while Instagram's
+  // stylesheets are still loading.
+  (function applySystemThemeBackground() {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const root = document.documentElement;
+      if (!root) return;
+      root.style.setProperty(
+        "background-color",
+        query.matches ? "#000000" : "#ffffff",
+        "important"
+      );
+    };
+
+    apply();
+    if (query.addEventListener) {
+      query.addEventListener("change", apply);
+    } else if (query.addListener) {
+      query.addListener(apply);
+    }
+    if (!document.documentElement) {
+      document.addEventListener("readystatechange", apply, { once: true });
+    }
+  })();
+
   // If Instagram redirects to the home feed `/` after logging in, immediately
   // redirect back to `/direct/inbox/` so the app always stays on DM.
   if (window.location.pathname === "/") {

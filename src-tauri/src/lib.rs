@@ -36,6 +36,19 @@ static RECREATE_AFTER_DESTROY: AtomicBool = AtomicBool::new(false);
 
 const WINDOW_STATE_FILE: &str = "window-state.json";
 
+/// Native window backgrounds matching Instagram's dark/light page colors. Without
+/// an explicit color the WKWebView paints an opaque white canvas until Instagram's
+/// first paint, which flashes in dark mode.
+const DARK_WINDOW_BACKGROUND: tauri::webview::Color = tauri::webview::Color(0, 0, 0, 255);
+const LIGHT_WINDOW_BACKGROUND: tauri::webview::Color = tauri::webview::Color(255, 255, 255, 255);
+
+fn window_background_color(theme: tauri::Theme) -> tauri::webview::Color {
+    match theme {
+        tauri::Theme::Dark => DARK_WINDOW_BACKGROUND,
+        _ => LIGHT_WINDOW_BACKGROUND,
+    }
+}
+
 #[derive(Clone, Copy)]
 struct WindowGeometry {
     x: f64,
@@ -354,6 +367,11 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
         .expect("Missing main window configuration in tauri.conf.json")
         .clone();
 
+    // Build hidden so the native window/WebView background can be matched to the
+    // system appearance before the first frame is composited. Showing it right
+    // away afterwards keeps launch latency imperceptible.
+    window_config.visible = false;
+
     if let Some(geometry) = load_window_geometry(app) {
         window_config.maximized = geometry.maximized;
         window_config.fullscreen = geometry.fullscreen;
@@ -382,7 +400,7 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
         builder = builder.icon(default_icon)?;
     }
 
-    builder
+    let window = builder
         .on_page_load(|window, payload| {
             let is_login_page = payload.url().path().starts_with("/accounts/login");
             set_logout_menu_enabled(window.app_handle(), !is_login_page);
@@ -418,6 +436,11 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build()?;
+
+    let theme = window.theme().unwrap_or(tauri::Theme::Light);
+    let _ = window.set_background_color(Some(window_background_color(theme)));
+    let _ = window.show();
+    let _ = window.set_focus();
 
     Ok(())
 }
@@ -649,6 +672,13 @@ pub fn run() {
                             eprintln!("Failed to recreate main window: {err}");
                         }
                     });
+                }
+            }
+            WindowEvent::ThemeChanged(theme) => {
+                // Keep the native background in sync so a later recreation or
+                // overscroll never exposes the previous theme's color.
+                if let Some(win) = window.app_handle().get_webview_window("main") {
+                    let _ = win.set_background_color(Some(window_background_color(*theme)));
                 }
             }
             _ => {}

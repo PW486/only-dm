@@ -34,6 +34,12 @@ static WINDOW_CLOSING: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 static RECREATE_AFTER_DESTROY: AtomicBool = AtomicBool::new(false);
 
+/// Last frame observed from move/resize events. An explicit quit (Cmd+Q or the
+/// app menu) terminates the process without a close request, so this cached
+/// value is what `RunEvent::Exit` persists for the next launch.
+#[cfg(target_os = "macos")]
+static LAST_WINDOW_GEOMETRY: std::sync::Mutex<Option<WindowGeometry>> = std::sync::Mutex::new(None);
+
 const WINDOW_STATE_FILE: &str = "window-state.json";
 
 /// Native window backgrounds matching Instagram's dark/light page colors. Without
@@ -373,15 +379,20 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
     window_config.visible = false;
 
     if let Some(geometry) = load_window_geometry(app) {
-        window_config.maximized = geometry.maximized;
         window_config.fullscreen = geometry.fullscreen;
+        window_config.center = false;
+        window_config.x = Some(geometry.x);
+        window_config.y = Some(geometry.y);
 
-        // A maximized/fullscreen window uses the screen bounds; keep the
-        // configured default size so leaving that state still gives a sane window.
-        if !geometry.maximized && !geometry.fullscreen {
-            window_config.center = false;
-            window_config.x = Some(geometry.x);
-            window_config.y = Some(geometry.y);
+        // Restore the last visible frame even if the window was zoomed. Applying
+        // the native `maximized` flag while the window is still hidden makes
+        // AppKit zoom from the centered default frame and drops it at the wrong
+        // position, so the saved frame is restored directly instead.
+        //
+        // A fullscreen window keeps the configured default size so leaving
+        // fullscreen still lands at a sane size; its saved origin is enough to
+        // re-enter fullscreen on the display it was last used on.
+        if !geometry.fullscreen {
             window_config.width = geometry.width;
             window_config.height = geometry.height;
         }
@@ -674,6 +685,17 @@ pub fn run() {
                     });
                 }
             }
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                // Remember the live frame; quitting the app does not emit a
+                // close request, so this is the only chance to see the value.
+                if !WINDOW_CLOSING.load(Ordering::SeqCst) {
+                    if let Some(geometry) = capture_window_geometry(window) {
+                        if let Ok(mut cached) = LAST_WINDOW_GEOMETRY.lock() {
+                            *cached = Some(geometry);
+                        }
+                    }
+                }
+            }
             WindowEvent::ThemeChanged(theme) => {
                 // Keep the native background in sync so a later recreation or
                 // overscroll never exposes the previous theme's color.
@@ -717,6 +739,19 @@ pub fn run() {
             RunEvent::ExitRequested { code: Some(_), .. } => {
                 // Do not recreate a window while an explicit quit/restart is running.
                 RECREATE_AFTER_DESTROY.store(false, Ordering::SeqCst);
+            }
+            RunEvent::Exit => {
+                // Cmd+Q / "Quit OnlyDM" does not emit CloseRequested, so persist
+                // the last observed frame; otherwise quitting after moving or
+                // resizing restores the geometry from the previous close.
+                let geometry = _app_handle
+                    .get_webview_window("main")
+                    .and_then(|webview| capture_window_geometry(&webview.as_ref().window()))
+                    .or_else(|| LAST_WINDOW_GEOMETRY.lock().ok().and_then(|cached| *cached));
+
+                if let Some(geometry) = geometry {
+                    save_window_geometry(_app_handle, geometry);
+                }
             }
             RunEvent::Reopen { .. } => {
                 if let Some(win) = _app_handle.get_webview_window("main") {

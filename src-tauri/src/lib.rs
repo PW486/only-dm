@@ -61,7 +61,6 @@ struct WindowGeometry {
     y: f64,
     width: f64,
     height: f64,
-    maximized: bool,
     fullscreen: bool,
 }
 
@@ -277,10 +276,6 @@ fn load_window_geometry(app: &AppHandle) -> Option<WindowGeometry> {
         y: value.get("y")?.as_f64()?,
         width: value.get("width")?.as_f64()?,
         height: value.get("height")?.as_f64()?,
-        maximized: value
-            .get("maximized")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
         fullscreen: value
             .get("fullscreen")
             .and_then(serde_json::Value::as_bool)
@@ -320,7 +315,6 @@ fn save_window_geometry(app: &AppHandle, geometry: WindowGeometry) {
         "y": geometry.y,
         "width": geometry.width,
         "height": geometry.height,
-        "maximized": geometry.maximized,
         "fullscreen": geometry.fullscreen,
     });
 
@@ -345,7 +339,6 @@ fn capture_window_geometry<R: Runtime>(window: &tauri::Window<R>) -> Option<Wind
         y: position.y as f64 / scale_factor,
         width: size.width as f64 / scale_factor,
         height: size.height as f64 / scale_factor,
-        maximized: window.is_maximized().unwrap_or(false),
         fullscreen: window.is_fullscreen().unwrap_or(false),
     })
 }

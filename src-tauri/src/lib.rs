@@ -34,7 +34,26 @@ static WINDOW_CLOSING: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 static RECREATE_AFTER_DESTROY: AtomicBool = AtomicBool::new(false);
 
+/// Last frame observed from move/resize events. An explicit quit (Cmd+Q or the
+/// app menu) terminates the process without a close request, so this cached
+/// value is what `RunEvent::Exit` persists for the next launch.
+#[cfg(target_os = "macos")]
+static LAST_WINDOW_GEOMETRY: std::sync::Mutex<Option<WindowGeometry>> = std::sync::Mutex::new(None);
+
 const WINDOW_STATE_FILE: &str = "window-state.json";
+
+/// Native window backgrounds matching Instagram's dark/light page colors. Without
+/// an explicit color the WKWebView paints an opaque white canvas until Instagram's
+/// first paint, which flashes in dark mode.
+const DARK_WINDOW_BACKGROUND: tauri::webview::Color = tauri::webview::Color(0, 0, 0, 255);
+const LIGHT_WINDOW_BACKGROUND: tauri::webview::Color = tauri::webview::Color(255, 255, 255, 255);
+
+fn window_background_color(theme: tauri::Theme) -> tauri::webview::Color {
+    match theme {
+        tauri::Theme::Dark => DARK_WINDOW_BACKGROUND,
+        _ => LIGHT_WINDOW_BACKGROUND,
+    }
+}
 
 #[derive(Clone, Copy)]
 struct WindowGeometry {
@@ -42,7 +61,6 @@ struct WindowGeometry {
     y: f64,
     width: f64,
     height: f64,
-    maximized: bool,
     fullscreen: bool,
 }
 
@@ -258,10 +276,6 @@ fn load_window_geometry(app: &AppHandle) -> Option<WindowGeometry> {
         y: value.get("y")?.as_f64()?,
         width: value.get("width")?.as_f64()?,
         height: value.get("height")?.as_f64()?,
-        maximized: value
-            .get("maximized")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
         fullscreen: value
             .get("fullscreen")
             .and_then(serde_json::Value::as_bool)
@@ -301,7 +315,6 @@ fn save_window_geometry(app: &AppHandle, geometry: WindowGeometry) {
         "y": geometry.y,
         "width": geometry.width,
         "height": geometry.height,
-        "maximized": geometry.maximized,
         "fullscreen": geometry.fullscreen,
     });
 
@@ -326,7 +339,6 @@ fn capture_window_geometry<R: Runtime>(window: &tauri::Window<R>) -> Option<Wind
         y: position.y as f64 / scale_factor,
         width: size.width as f64 / scale_factor,
         height: size.height as f64 / scale_factor,
-        maximized: window.is_maximized().unwrap_or(false),
         fullscreen: window.is_fullscreen().unwrap_or(false),
     })
 }
@@ -354,16 +366,26 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
         .expect("Missing main window configuration in tauri.conf.json")
         .clone();
 
-    if let Some(geometry) = load_window_geometry(app) {
-        window_config.maximized = geometry.maximized;
-        window_config.fullscreen = geometry.fullscreen;
+    // Build hidden so the native window/WebView background can be matched to the
+    // system appearance before the first frame is composited. Showing it right
+    // away afterwards keeps launch latency imperceptible.
+    window_config.visible = false;
 
-        // A maximized/fullscreen window uses the screen bounds; keep the
-        // configured default size so leaving that state still gives a sane window.
-        if !geometry.maximized && !geometry.fullscreen {
-            window_config.center = false;
-            window_config.x = Some(geometry.x);
-            window_config.y = Some(geometry.y);
+    if let Some(geometry) = load_window_geometry(app) {
+        window_config.fullscreen = geometry.fullscreen;
+        window_config.center = false;
+        window_config.x = Some(geometry.x);
+        window_config.y = Some(geometry.y);
+
+        // Restore the last visible frame even if the window was zoomed. Applying
+        // the native `maximized` flag while the window is still hidden makes
+        // AppKit zoom from the centered default frame and drops it at the wrong
+        // position, so the saved frame is restored directly instead.
+        //
+        // A fullscreen window keeps the configured default size so leaving
+        // fullscreen still lands at a sane size; its saved origin is enough to
+        // re-enter fullscreen on the display it was last used on.
+        if !geometry.fullscreen {
             window_config.width = geometry.width;
             window_config.height = geometry.height;
         }
@@ -382,7 +404,7 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
         builder = builder.icon(default_icon)?;
     }
 
-    builder
+    let window = builder
         .on_page_load(|window, payload| {
             let is_login_page = payload.url().path().starts_with("/accounts/login");
             set_logout_menu_enabled(window.app_handle(), !is_login_page);
@@ -418,6 +440,11 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build()?;
+
+    let theme = window.theme().unwrap_or(tauri::Theme::Light);
+    let _ = window.set_background_color(Some(window_background_color(theme)));
+    let _ = window.show();
+    let _ = window.set_focus();
 
     Ok(())
 }
@@ -651,6 +678,24 @@ pub fn run() {
                     });
                 }
             }
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                // Remember the live frame; quitting the app does not emit a
+                // close request, so this is the only chance to see the value.
+                if !WINDOW_CLOSING.load(Ordering::SeqCst) {
+                    if let Some(geometry) = capture_window_geometry(window) {
+                        if let Ok(mut cached) = LAST_WINDOW_GEOMETRY.lock() {
+                            *cached = Some(geometry);
+                        }
+                    }
+                }
+            }
+            WindowEvent::ThemeChanged(theme) => {
+                // Keep the native background in sync so a later recreation or
+                // overscroll never exposes the previous theme's color.
+                if let Some(win) = window.app_handle().get_webview_window("main") {
+                    let _ = win.set_background_color(Some(window_background_color(*theme)));
+                }
+            }
             _ => {}
         }
     });
@@ -687,6 +732,19 @@ pub fn run() {
             RunEvent::ExitRequested { code: Some(_), .. } => {
                 // Do not recreate a window while an explicit quit/restart is running.
                 RECREATE_AFTER_DESTROY.store(false, Ordering::SeqCst);
+            }
+            RunEvent::Exit => {
+                // Cmd+Q / "Quit OnlyDM" does not emit CloseRequested, so persist
+                // the last observed frame; otherwise quitting after moving or
+                // resizing restores the geometry from the previous close.
+                let geometry = _app_handle
+                    .get_webview_window("main")
+                    .and_then(|webview| capture_window_geometry(&webview.as_ref().window()))
+                    .or_else(|| LAST_WINDOW_GEOMETRY.lock().ok().and_then(|cached| *cached));
+
+                if let Some(geometry) = geometry {
+                    save_window_geometry(_app_handle, geometry);
+                }
             }
             RunEvent::Reopen { .. } => {
                 if let Some(win) = _app_handle.get_webview_window("main") {

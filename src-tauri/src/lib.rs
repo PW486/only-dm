@@ -79,14 +79,7 @@ impl Drop for WindowCreationGuard {
 const INIT_SCRIPT: &str = include_str!("../scripts/inject.js");
 
 /// Standard desktop User-Agent.
-#[cfg(target_os = "macos")]
 const DESKTOP_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
-
-#[cfg(target_os = "windows")]
-const DESKTOP_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
-#[cfg(target_os = "linux")]
-const DESKTOP_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
 const LOGOUT_TRIGGER_PATH: &str = "/__ig_dm_logout__";
 const LOGIN_REDIRECT_URL: &str =
@@ -599,7 +592,7 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         MenuItemBuilder::with_id("check-updates", "Check for Updates...").build(app)?;
 
     let logout_item = MenuItemBuilder::with_id("logout", "Log Out")
-        .accelerator("CmdOrCtrl+Shift+L")
+        .accelerator("Cmd+Shift+L")
         .build(app)?;
 
     let app_submenu = Submenu::with_id_and_items(

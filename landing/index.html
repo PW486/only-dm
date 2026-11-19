@@ -65,7 +65,7 @@
       --accent-gradient: linear-gradient(135deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
       --glow-purple: rgba(188, 24, 136, 0.15);
       --glow-blue: rgba(59, 130, 246, 0.12);
-      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
       --font-mono: 'JetBrains Mono', monospace;
     }
 
@@ -591,8 +591,10 @@
     /* Download Card Grid */
     .download-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: 1fr;
       gap: 24px;
+      max-width: 480px;
+      margin: 0 auto;
     }
 
     .download-card {
@@ -1245,44 +1247,12 @@
             Download .dmg
           </a>
         </div>
-
-        <!-- Windows -->
-        <div class="download-card">
-          <div class="os-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
-            </svg>
-          </div>
-          <h3>Windows</h3>
-          <p>64-bit Windows 10/11 with WebView2 runtime.</p>
-          <a href="https://github.com/PW486/only-dm/releases/latest" data-download="windows" data-download-size="windows" class="btn btn-secondary" style="width: 100%; margin-top: auto;">
-            Download for Windows
-          </a>
-        </div>
-
-        <!-- Linux -->
-        <div class="download-card">
-          <div class="os-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12.001 2c-3.1 0-5.5 2.4-5.5 5.5 0 1.2.4 2.3 1 3.2-.2.5-.5 1.1-.5 1.8 0 2.1 1.8 3.8 4 3.9h2c2.2-.1 4-1.8 4-3.9 0-.7-.3-1.3-.5-1.8.6-.9 1-2 1-3.2 0-3.1-2.4-5.5-5.5-5.5z"/>
-            </svg>
-          </div>
-          <h3>Linux</h3>
-          <p>AppImage, Debian, Ubuntu, and RPM packages via WebKitGTK.</p>
-          <a href="https://github.com/PW486/only-dm/releases/latest" data-download="linux" data-download-size="linux" class="btn btn-secondary" style="width: 100%; margin-top: auto;">
-            Download AppImage
-          </a>
-        </div>
       </div>
       <aside class="macos-install-note">
         <strong>macOS: app blocked on first launch?</strong>
         After dragging OnlyDM into <code style="display: inline; margin: 0; padding: 2px 5px;">/Applications</code>, try opening it. If macOS still blocks it, run this command in Terminal and open OnlyDM again:
         <code>sudo xattr -r -d com.apple.quarantine /Applications/OnlyDM.app</code>
         Enter your Mac account password when prompted.
-      </aside>
-      <aside class="macos-install-note">
-        <strong>Windows: SmartScreen warning?</strong>
-        The Windows installers are not code-signed yet. If SmartScreen shows “Windows protected your PC”, click <strong>More info</strong> and then <strong>Run anyway</strong>.
       </aside>
     </div>
   </section>
@@ -1372,8 +1342,6 @@
       const CACHE_TTL = 6 * 60 * 60 * 1000;
       const BUTTON_LABELS = {
         macos: "Download .dmg",
-        windows: "Download for Windows",
-        linux: "Download AppImage",
       };
 
       const readCache = () => {
@@ -1421,14 +1389,6 @@
           macos: pickAsset(assets, [
             (asset) => /universal.*\.dmg$/i.test(asset.name),
             (asset) => /\.dmg$/i.test(asset.name),
-          ]),
-          windows: pickAsset(assets, [
-            (asset) => /-setup\.exe$/i.test(asset.name),
-            (asset) => /\.msi$/i.test(asset.name),
-          ]),
-          linux: pickAsset(assets, [
-            (asset) => /\.AppImage$/i.test(asset.name),
-            (asset) => /\.deb$/i.test(asset.name),
           ]),
         };
 

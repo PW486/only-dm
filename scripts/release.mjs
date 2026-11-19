@@ -83,7 +83,7 @@ function main() {
   } else {
     git("push", "origin", "main");
     git("push", "origin", tag);
-    console.log(`\nPushed ${tag}. The release workflow will build all platforms.`);
+    console.log(`\nPushed ${tag}. The release workflow will build the macOS app.`);
   }
 }
 

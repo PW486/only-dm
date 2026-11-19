@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-emerald?style=flat-square" alt="MIT License" /></a>
   <a href="https://tauri.app/"><img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square&logo=tauri" alt="Tauri v2" /></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Built%20with-Rust-black?style=flat-square&logo=rust" alt="Rust" /></a>
-  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square" alt="Platform Support" />
+  <img src="https://img.shields.io/badge/Platform-macOS-lightgrey?style=flat-square" alt="Platform Support" />
 </p>
 
 ---
@@ -57,11 +57,9 @@ Most people open Instagram on their desktop just to reply to urgent direct messa
 
 ### Pre-built Binaries
 
-Download the latest release for your operating system from the **[Releases](https://github.com/PW486/only-dm/releases/latest)** page:
+Download the latest macOS release from the **[Releases](https://github.com/PW486/only-dm/releases/latest)** page:
 
 - **macOS (Universal: Apple Silicon + Intel)**: `.dmg`
-- **Windows (64-bit)**: `.msi` or `-setup.exe`
-- **Linux (64-bit)**: `.AppImage`, `.deb`, or `.rpm`
 
 > **macOS first launch:** After dragging `OnlyDM.app` into `/Applications`, try opening it. If macOS blocks the app, run this command in Terminal, then open OnlyDM again:
 >
@@ -70,8 +68,6 @@ Download the latest release for your operating system from the **[Releases](http
 > ```
 >
 > Enter your Mac account password when prompted (Terminal does not show the characters as you type).
-
-> **Windows first launch:** The installers are not code-signed yet. If SmartScreen shows "Windows protected your PC", choose **More info** and then **Run anyway**.
 
 ### Automatic Updates
 
@@ -87,10 +83,7 @@ The first updater-enabled release must be installed manually. Users on `v0.1.2` 
 
 1. **Rust & Cargo**: Latest stable toolchain installed via [rustup](https://rustup.rs/)
 2. **Node.js**: Node 18+ and npm
-3. **OS Build Tools**:
-   - macOS: Xcode Command Line Tools (`xcode-select --install`)
-   - Linux: `libwebkit2gtk-4.1-dev` (or `libwebkit2gtk-4.0-dev`), `build-essential`, `curl`, `wget`, `file`, `libssl-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`
-   - Windows: Microsoft C++ Build Tools & WebView2 runtime
+3. **Xcode Command Line Tools**: `xcode-select --install`
 
 ### Build Steps
 
@@ -133,7 +126,7 @@ OnlyDM utilizes **Tauri v2**, combining a lightweight Rust host shell with nativ
 │               │                          │             │
 │               ▼                          ▼             │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │       Native Webview (WebKit / WebView2)         │  │
+│  │       Native Webview (WebKit)                    │  │
 │  │         https://www.instagram.com/direct/        │  │
 │  └──────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────┘

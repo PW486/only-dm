@@ -502,7 +502,7 @@
       justify-content: center;
       background-color: rgba(0, 0, 0, 0.65);
       backdrop-filter: blur(2px);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
     }
 
     .ig-dm-logout-dialog {

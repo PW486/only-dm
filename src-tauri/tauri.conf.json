@@ -30,13 +30,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["app", "dmg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/icon.icns"
     ],
     "macOS": {
       "minimumSystemVersion": "11.0",
@@ -51,10 +50,7 @@
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc0OUY2OTI1Rjk0RjU0RTAKUldUZ1ZFLzVKV21mZERuTUhtakY2U01Za2NkNExEWjhwckZXR1RFYmp0V1lRRXBBOXk5QU5YeTUK",
       "endpoints": [
         "https://github.com/PW486/only-dm/releases/latest/download/latest.json"
-      ],
-      "windows": {
-        "installMode": "passive"
-      }
+      ]
     }
   }
 }

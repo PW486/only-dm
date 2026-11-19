@@ -1,0 +1,16 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OnlyDM">
+  <title>OnlyDM</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#FFC15E"/><stop offset=".18" stop-color="#FF8A5B"/><stop offset=".4" stop-color="#FF526F"/><stop offset=".62" stop-color="#E62E86"/><stop offset=".82" stop-color="#B02AB0"/><stop offset="1" stop-color="#6A30DA"/></linearGradient>
+    <radialGradient id="glow" cx=".18" cy=".87" r=".62"><stop offset="0" stop-color="#FFE08A" stop-opacity=".22"/><stop offset=".55" stop-color="#FFE08A" stop-opacity=".06"/><stop offset="1" stop-color="#FFE08A" stop-opacity="0"/></radialGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2=".7" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".12"/><stop offset=".38" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>
+    <linearGradient id="shade" x1="0" y1="0" x2="0" y2="1"><stop offset=".65" stop-color="#2A0730" stop-opacity="0"/><stop offset="1" stop-color="#2A0730" stop-opacity=".16"/></linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="214" fill="url(#bg)"/>
+  <rect x="32" y="32" width="960" height="960" rx="214" fill="url(#glow)"/>
+  <rect x="32" y="32" width="960" height="960" rx="214" fill="url(#sheen)"/>
+  <rect x="32" y="32" width="960" height="960" rx="214" fill="url(#shade)"/>
+  <g transform="translate(376.300 602.400) rotate(-38.3594) scale(6.05)">
+    <path fill="#FFFFFF" d="M73.189 -11.955 Q94.000 0.000 73.189 11.955 L13.874 46.030 Q0.000 54.000 0.000 38.000 L0.000 9.500 Q0.000 7.500 1.972 7.164 L40.057 0.672 Q44.000 0.000 40.057 -0.672 L1.972 -7.164 Q0.000 -7.500 0.000 -9.500 L0.000 -38.000 Q0.000 -54.000 13.874 -46.030 L73.189 -11.955 Z"/>
+  </g>
+</svg>

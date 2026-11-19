@@ -8,7 +8,9 @@ use tauri::{
 
 #[cfg(target_os = "macos")]
 use tauri::{RunEvent, WindowEvent};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_dialog::{
+    DialogExt, MessageDialogBuilder, MessageDialogButtons, MessageDialogKind,
+};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
@@ -461,13 +463,30 @@ fn set_logout_menu_enabled<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
     }
 }
 
+/// Builds a native message dialog. Attaching the main window makes macOS draw a
+/// modern NSAlert sheet with the app icon; without a parent the dialog falls back
+/// to the legacy CFUserNotification alert and its dated "!" bubble icon.
+fn message_dialog<R: Runtime>(
+    app: &AppHandle<R>,
+    message: impl Into<String>,
+    title: &str,
+) -> MessageDialogBuilder<R> {
+    let dialog = app.dialog().message(message).title(title);
+    match app.get_webview_window("main") {
+        Some(window) => dialog.parent(&window),
+        None => dialog,
+    }
+}
+
 fn show_update_error(app: &AppHandle, err: &impl std::fmt::Display) {
-    app.dialog()
-        .message(format!("Could not update OnlyDM.\n\n{err}"))
-        .title("Update Error")
-        .kind(MessageDialogKind::Error)
-        .buttons(MessageDialogButtons::Ok)
-        .blocking_show();
+    message_dialog(
+        app,
+        format!("Could not update OnlyDM.\n\n{err}"),
+        "Update Error",
+    )
+    .kind(MessageDialogKind::Error)
+    .buttons(MessageDialogButtons::Ok)
+    .blocking_show();
 }
 
 /// Spawns an update check off the main thread. `interactive` controls whether
@@ -510,10 +529,7 @@ async fn check_for_updates(app: AppHandle, interactive: bool) {
                 message.push_str(&summary);
             }
 
-            let should_update = app
-                .dialog()
-                .message(message)
-                .title("Update Available")
+            let should_update = message_dialog(&app, message, "Update Available")
                 .kind(MessageDialogKind::Info)
                 .buttons(MessageDialogButtons::OkCancelCustom(
                     "Update Now".to_string(),
@@ -527,12 +543,14 @@ async fn check_for_updates(app: AppHandle, interactive: bool) {
 
             match update.download_and_install(|_, _| {}, || {}).await {
                 Ok(()) => {
-                    app.dialog()
-                        .message("The update was installed successfully. OnlyDM will now restart.")
-                        .title("Update Installed")
-                        .kind(MessageDialogKind::Info)
-                        .buttons(MessageDialogButtons::OkCustom("Restart".to_string()))
-                        .blocking_show();
+                    message_dialog(
+                        &app,
+                        "The update was installed successfully. OnlyDM will now restart.",
+                        "Update Installed",
+                    )
+                    .kind(MessageDialogKind::Info)
+                    .buttons(MessageDialogButtons::OkCustom("Restart".to_string()))
+                    .blocking_show();
                     app.restart();
                 }
                 Err(err) => show_update_error(&app, &err),
@@ -540,12 +558,14 @@ async fn check_for_updates(app: AppHandle, interactive: bool) {
         }
         Ok(None) => {
             if interactive {
-                app.dialog()
-                    .message(format!("OnlyDM {APP_VERSION} is up to date."))
-                    .title("No Updates Available")
-                    .kind(MessageDialogKind::Info)
-                    .buttons(MessageDialogButtons::Ok)
-                    .blocking_show();
+                message_dialog(
+                    &app,
+                    format!("OnlyDM {APP_VERSION} is up to date."),
+                    "No Updates Available",
+                )
+                .kind(MessageDialogKind::Info)
+                .buttons(MessageDialogButtons::Ok)
+                .blocking_show();
             }
         }
         Err(err) => {

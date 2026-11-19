@@ -126,7 +126,7 @@ OnlyDM utilizes **Tauri v2**, combining a lightweight Rust host shell with nativ
 │               │                          │             │
 │               ▼                          ▼             │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │       Native Webview (WebKit)                    │  │
+│  │              Native Webview (WebKit)             │  │
 │  │         https://www.instagram.com/direct/        │  │
 │  └──────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────┘

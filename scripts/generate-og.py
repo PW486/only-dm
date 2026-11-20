@@ -1,355 +1,444 @@
 #!/usr/bin/env python3
-"""Generate (or surgically patch) the 1200x630 Open Graph image.
+"""Generate the 1200x630 Open Graph image for OnlyDM.
 
-Default output: landing/assets/og-image.png — the `og:image` /
-`twitter:image` referenced by landing/index.html (1200x630).
+Design:
+    - Gradient wallpaper background, cover-cropped to 1200x630 and dimmed
+      slightly so the copy stays readable.
+    - App icon with a soft drop shadow.
+    - "OnlyDM" title, subtitle, and a translucent glass pill.
+    - No grid and no inset border.
 
-This single script has two modes:
+Output:
+    landing/assets/og-image.png
+    (the og:image / twitter:image referenced by landing/index.html)
 
-  generate  from scratch with Pillow. Draws the app icon, "OnlyDM" title,
-            subtitle, and pill onto a dark background with faint grid and
-            glow, matching the landing page styling. This is the
-            re-runnable generator for future OG edits — change the text
-            constants below and re-run.
-
-  patch     surgical fix of a pre-existing og-image.png. Keeps the original
-            fonts/background pixel-identical while removing the
-            ONLY-DM.VERCEL.APP text and the bottom Instagram gradient line,
-            then shifts the content block down by 8px to re-center. This is
-            the exact patch that produced the currently committed
-            og-image.png from the pre-cleanup original.
+Source assets:
+    scripts/assets/og-background.jpg
+    landing/assets/app-icon.png
 
 Requirements:
-    - Pillow: pip install Pillow           (both modes)
-    - numpy:  pip install numpy            (patch mode only)
-    - Inter fonts for generate mode (ExtraBold, Regular, Medium) in
-      ~/Library/Fonts or --font-dir. Download from https://github.com/rsms/inter.
+    - Pillow: pip install Pillow
+    - Plus Jakarta Sans installed system-wide via Homebrew:
+        brew install --cask font-plus-jakarta-sans
 
 Usage:
     python3 scripts/generate-og.py
-    python3 scripts/generate-og.py generate --output /tmp/og.png
-    python3 scripts/generate-og.py patch --src /path/to/og-image.original.png
+    python3 scripts/generate-og.py --output /tmp/og.png
     npm run assets:og
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 
 W, H = 1200, 630
-CX = 600
+CX = W // 2
 
 DEFAULT_OUT = ROOT / "landing" / "assets" / "og-image.png"
 DEFAULT_ICON = ROOT / "landing" / "assets" / "app-icon.png"
+DEFAULT_BACKGROUND = ROOT / "scripts" / "assets" / "og-background.jpg"
 DEFAULT_FONT_DIR = Path.home() / "Library" / "Fonts"
+
+FONT_FAMILY = "Plus Jakarta Sans"
+FONT_BREW_CASK = "font-plus-jakarta-sans"
 
 # --- OG copy (edit here for future OG changes) ---------------------------
 TITLE = "OnlyDM"
 SUBTITLE = "Desktop Client for Instagram DM"
 PILL_TEXT = "Free & Open Source \u00b7 macOS 11+"
 
-# Fitted text widths used to match the original og-image.png layout.
-TITLE_TARGET_W = 407
-SUBTITLE_TARGET_W = 448
-PILL_TARGET_W = 281
+# Ink widths that keep the same composition as the previous OG image.
+TITLE_TARGET_W = 408
+SUBTITLE_TARGET_W = 452
+PILL_TARGET_W = 294
 
-# --- patch mode constants -------------------------------------------------
-PATCH_DY = 8
-PATCH_Y0 = 84   # first row of shifted block (pure background above icon rim ~90)
-PATCH_Y1 = 528  # last row of shifted block (5px below pill border 525)
+TITLE_WEIGHT = 800
+SUBTITLE_WEIGHT = 400
+PILL_WEIGHT = 500
 
+# Tighter tracking on the wordmark, matching the landing page hero title.
+TITLE_TRACKING_EM = -0.035
 
-def find_font(font_dir: Path, filename: str) -> Path:
-    candidates = [
-        font_dir / filename,
-        Path("/Library/Fonts") / filename,
-        Path("/System/Library/Fonts") / filename,
+# --- layout --------------------------------------------------------------
+ICON_SIZE = 138
+ICON_TOP = 102
+TITLE_INK_TOP = 299
+SUBTITLE_INK_TOP = 422
+PILL_TOP = 485
+PILL_HEIGHT = 49
+PILL_RADIUS = PILL_HEIGHT // 2
+PILL_PAD_X = 20
+PILL_DOT_D = 8
+PILL_DOT_GAP = 14
+
+# --- colors --------------------------------------------------------------
+BACKGROUND_DIM = 0.10
+BACKGROUND_DIM_COLOR = (9, 7, 15)
+TITLE_FILL = (243, 244, 246, 215)
+SUBTITLE_FILL = (215, 221, 231, 215)
+PILL_FILL = (23, 22, 28, 215)
+PILL_BORDER = (255, 255, 255, 45)
+PILL_TEXT_FILL = (218, 222, 228, 255)
+PILL_DOT_FILL = (0, 255, 137, 255)
+
+TITLE_SHADOW = (20, 6, 22)
+SUBTITLE_SHADOW = (20, 6, 22)
+PILL_SHADOW = (15, 5, 18)
+ICON_SHADOW = (22, 6, 26)
+
+def font_candidates(font_dir: Path) -> list[Path]:
+    """Return upright Plus Jakarta Sans font files, best candidates first."""
+    directories = [
+        font_dir,
+        Path.home() / "Library" / "Fonts",
+        Path("/Library/Fonts"),
+        Path("/System/Library/Fonts"),
+        Path("/opt/homebrew/share/fonts"),
+        Path("/usr/local/share/fonts"),
     ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
+    seen: set[Path] = set()
+    candidates: list[Path] = []
+    for directory in directories:
+        if not directory.exists():
+            continue
+        for path in sorted(directory.glob("PlusJakartaSans*")):
+            if path.suffix.lower() not in {".ttf", ".otf"}:
+                continue
+            if "italic" in path.name.lower():
+                continue
+            if path in seen:
+                continue
+            seen.add(path)
+            candidates.append(path)
+
+    # Prefer the variable weight axis file, then static weight files.
+    candidates.sort(key=lambda p: ("wght" not in p.name.lower(), p.name))
+    return candidates
+
+
+def load_font(font_dir: Path, size: int, weight: int) -> ImageFont.FreeTypeFont:
+    candidates = font_candidates(font_dir)
+    if not candidates:
+        raise SystemExit(
+            f"{FONT_FAMILY} not found. Install it with:\n"
+            f"    brew install --cask {FONT_BREW_CASK}\n"
+            f"or pass --font-dir pointing at a folder containing the font files."
+        )
+
+    # Variable font: pick the upright file and set the weight axis.
+    for path in candidates:
+        if "wght" not in path.name.lower():
+            continue
+        try:
+            font = ImageFont.truetype(str(path), size)
+            font.set_variation_by_axes([weight])
+            return font
+        except Exception:
+            continue
+
+    # Static font: match the requested weight by filename.
+    weight_names = {
+        300: "Light",
+        400: "Regular",
+        500: "Medium",
+        600: "SemiBold",
+        700: "Bold",
+        800: "ExtraBold",
+    }
+    weight_name = weight_names.get(weight)
+    if weight_name:
+        for path in candidates:
+            if f"-{weight_name}." in path.name or f"-{weight_name}[" in path.name:
+                return ImageFont.truetype(str(path), size)
+
     raise SystemExit(
-        f"Inter font not found: {filename}. "
-        f"Pass --font-dir pointing to the folder with Inter-ExtraBold.otf, "
-        f"Inter-Regular.otf, Inter-Medium.otf, or install them to ~/Library/Fonts."
+        f"Could not load {FONT_FAMILY} at weight {weight}. "
+        f"Reinstall with `brew install --cask {FONT_BREW_CASK}` "
+        f"or pass --font-dir to a folder with the static font weights."
     )
 
 
-def fit_size(path: Path, text: str, target_w: int, lo: int = 10, hi: int = 140) -> tuple[int, ImageFont.FreeTypeFont]:
+def fit_size(
+    font_dir: Path,
+    text: str,
+    target_w: int,
+    weight: int,
+    lo: int = 10,
+    hi: int = 140,
+) -> tuple[int, ImageFont.FreeTypeFont]:
+    """Pick the font size whose ink width is closest to target_w."""
+    best: tuple[int, int, ImageFont.FreeTypeFont] | None = None
     for size in range(lo, hi + 1):
-        f = ImageFont.truetype(str(path), size)
-        try:
-            w = f.getlength(text)
-        except Exception:
-            w = f.getbbox(text)[2]
-        if w >= target_w:
-            if size == lo:
-                return size, f
-            f_prev = ImageFont.truetype(str(path), size - 1)
-            w_prev = f_prev.getlength(text)
-            if abs(w_prev - target_w) <= abs(w - target_w):
-                return size - 1, f_prev
-            return size, f
-    f = ImageFont.truetype(str(path), hi)
-    return hi, f
+        font = load_font(font_dir, size, weight)
+        bbox = font.getbbox(text)
+        width = bbox[2] - bbox[0]
+        distance = abs(width - target_w)
+        if best is None or distance < best[0]:
+            best = (distance, size, font)
+    assert best is not None
+    return best[1], best[2]
 
 
-def make_glow(base: Image.Image, center: tuple[int, int], radius: int, color: tuple[int, int, int], alpha: int = 110, blur: int = 70) -> Image.Image:
-    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    cx, cy = center
-    d.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=color + (alpha,))
-    layer = layer.filter(ImageFilter.GaussianBlur(blur))
-    base.alpha_composite(layer)
-    return base
+def cover(im: Image.Image, width: int, height: int) -> Image.Image:
+    """Resize and center-crop an image to exactly width x height."""
+    im = im.convert("RGB")
+    scale = max(width / im.width, height / im.height)
+    resized = im.resize(
+        (round(im.width * scale), round(im.height * scale)),
+        Image.LANCZOS,
+    )
+    left = (resized.width - width) // 2
+    top = (resized.height - height) // 2
+    return resized.crop((left, top, left + width, top + height)).convert("RGBA")
 
 
-def run_generate(args: argparse.Namespace) -> None:
-    inter = find_font(args.font_dir, "Inter-ExtraBold.otf")
-    inter_regular = find_font(args.font_dir, "Inter-Regular.otf")
-    inter_medium = find_font(args.font_dir, "Inter-Medium.otf")
-    if not args.icon.exists():
-        raise SystemExit(f"Icon source not found: {args.icon}")
+def text_layer(
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    fill: tuple[int, int, int, int],
+    tracking: int = 0,
+) -> tuple[Image.Image, int, int]:
+    """Render text and crop the layer to its actual ink bounds.
 
-    # --- base background ---
-    img = Image.new("RGBA", (W, H), (9, 10, 15, 255))
+    A non-zero tracking value is applied between glyphs. The final crop makes
+    centering independent of font side bearings.
+    """
+    bbox = font.getbbox(text)
+    padding = 16
+    width = round(font.getlength(text)) + padding * 2 + abs(tracking) * len(text)
+    height = bbox[3] - bbox[1] + padding * 2
+    layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    baseline_y = padding - bbox[1]
 
-    # purple glow top-center (matches original: bright at 600,50, dark at 0,50)
-    img = make_glow(img, (600, -70), 450, (96, 34, 58), alpha=82, blur=80)
-    # secondary purple to the right, softer
-    img = make_glow(img, (1020, 40), 380, (72, 28, 66), alpha=42, blur=85)
-    # warm glow bottom-left (matches 100,620 = (39,28,20))
-    img = make_glow(img, (0, 700), 340, (96, 68, 38), alpha=78, blur=85)
+    if tracking:
+        for index, char in enumerate(text):
+            x = padding + font.getlength(text[:index]) + tracking * index
+            draw.text((x, baseline_y), char, font=font, fill=fill)
+    else:
+        draw.text((padding - bbox[0], baseline_y), text, font=font, fill=fill)
 
-    # --- faint grid ---
-    grid = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(grid)
-    for x in range(60, W, 60):
-        gd.line([(x, 0), (x, H)], fill=(255, 255, 255, 7), width=1)
-    for y in range(60, H, 60):
-        gd.line([(0, y), (W, y)], fill=(255, 255, 255, 7), width=1)
-    img.alpha_composite(grid)
+    ink_bbox = layer.getchannel("A").getbbox()
+    if ink_bbox is None:
+        raise SystemExit(f"Could not render text: {text!r}")
+    layer = layer.crop(ink_bbox)
+    return layer, layer.width, layer.height
 
-    # --- fonts fitted to original pixel widths ---
-    title_size, title_font = fit_size(inter, TITLE, TITLE_TARGET_W, 60, 140)
-    subtitle_size, subtitle_font = fit_size(inter_regular, SUBTITLE, SUBTITLE_TARGET_W, 12, 60)
-    pill_size, pill_font = fit_size(inter_medium, PILL_TEXT, PILL_TARGET_W, 10, 40)
-    # pill text width for layout
-    pill_text_w = pill_font.getlength(PILL_TEXT)
-    print(f"title size={title_size} w={title_font.getlength(TITLE):.1f} bbox={title_font.getbbox(TITLE)}")
-    print(f"subtitle size={subtitle_size} w={subtitle_font.getlength(SUBTITLE):.1f} bbox={subtitle_font.getbbox(SUBTITLE)}")
-    print(f"pill text size={pill_size} w={pill_text_w:.1f} bbox={pill_font.getbbox(PILL_TEXT)}")
 
-    # --- layout: vertically centered stack ---
-    # app-icon.png content is 244/256 of image, so resize image to 143 to get ~136 content
-    icon_img_size = 143
-    icon_h = icon_img_size
-    title_bbox = title_font.getbbox(TITLE)
-    title_h = title_bbox[3] - title_bbox[1]
-    subtitle_bbox = subtitle_font.getbbox(SUBTITLE)
-    subtitle_h = subtitle_bbox[3] - subtitle_bbox[1]
-    pill_h = 48
-    gap_icon_title = 38
-    gap_title_sub = 22
-    gap_sub_pill = 36
+def shadow(
+    layer: Image.Image,
+    position: tuple[int, int],
+    blur: int,
+    offset: tuple[int, int],
+    opacity: float,
+    color: tuple[int, int, int],
+) -> Image.Image:
+    """Build a full-canvas soft shadow from a layer's alpha channel."""
+    canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    canvas.alpha_composite(layer, position)
+    if offset != (0, 0):
+        shifted = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        shifted.alpha_composite(canvas, offset)
+        canvas = shifted
+    alpha = canvas.getchannel("A").filter(ImageFilter.GaussianBlur(blur))
+    if opacity < 1:
+        alpha = alpha.point(lambda value: int(value * opacity))
+    out = Image.new("RGBA", (W, H), color + (0,))
+    out.putalpha(alpha)
+    return out
 
-    total = icon_h + gap_icon_title + title_h + gap_title_sub + subtitle_h + gap_sub_pill + pill_h
-    top = (H - total) // 2
-    print(f"layout total={total} top={top} title_h={title_h} subtitle_h={subtitle_h}")
 
-    icon_top = top
-    icon_bottom = icon_top + icon_h
-    title_top = icon_bottom + gap_icon_title
-    title_bottom = title_top + title_h
-    subtitle_top = title_bottom + gap_title_sub
-    subtitle_bottom = subtitle_top + subtitle_h
-    pill_top = subtitle_bottom + gap_sub_pill
-    pill_bottom = pill_top + pill_h
-    print(f"icon {icon_top}-{icon_bottom}, title {title_top}-{title_bottom}, subtitle {subtitle_top}-{subtitle_bottom}, pill {pill_top}-{pill_bottom}")
+def add_text(
+    img: Image.Image,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    fill: tuple[int, int, int, int],
+    ink_top: int,
+    shadow_color: tuple[int, int, int],
+    shadow_blur: int,
+    shadow_offset: tuple[int, int],
+    shadow_opacity: float,
+    tracking: int = 0,
+) -> int:
+    layer, ink_w, _ = text_layer(text, font, fill, tracking)
+    position = (round(CX - ink_w / 2), ink_top)
+    img.alpha_composite(
+        shadow(layer, position, shadow_blur, shadow_offset, shadow_opacity, shadow_color)
+    )
+    img.alpha_composite(layer, position)
+    return ink_w
 
-    # --- icon halo (warm glow behind icon) ---
-    icon_cy = (icon_top + icon_bottom) // 2
-    icon_cx = CX
-    halo = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    hd = ImageDraw.Draw(halo)
-    hd.ellipse([icon_cx - 130, icon_cy - 130, icon_cx + 130, icon_cy + 130], fill=(255, 122, 48, 28))
-    halo = halo.filter(ImageFilter.GaussianBlur(70))
-    img.alpha_composite(halo)
 
-    # --- icon shadow ---
-    icon_src = Image.open(args.icon).convert("RGBA")
-    icon_resized = icon_src.resize((icon_img_size, icon_img_size), Image.LANCZOS)
-    shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    # shadow from icon alpha
-    sh_alpha = Image.new("L", (icon_img_size, icon_img_size), 0)
-    sh_alpha.paste(255, (0, 0), icon_resized.getchannel("A"))
-    # build black shape
-    black = Image.new("RGBA", (icon_img_size, icon_img_size), (0, 0, 0, 120))
-    shadow.paste(black, (icon_cx - icon_img_size // 2, icon_top + 10), mask=sh_alpha)
-    shadow = shadow.filter(ImageFilter.GaussianBlur(14))
-    img.alpha_composite(shadow)
+def run(args: argparse.Namespace) -> None:
+    for path, label in (
+        (args.icon, "Icon"),
+        (args.background, "Background"),
+    ):
+        if not path.exists():
+            raise SystemExit(f"{label} source not found: {path}")
 
-    # --- icon ---
-    ix = icon_cx - icon_img_size // 2
-    img.alpha_composite(icon_resized, (ix, icon_top))
+    title_size, title_font = fit_size(
+        args.font_dir, TITLE, TITLE_TARGET_W, TITLE_WEIGHT, 70, 140
+    )
+    subtitle_size, subtitle_font = fit_size(
+        args.font_dir, SUBTITLE, SUBTITLE_TARGET_W, SUBTITLE_WEIGHT, 15, 60
+    )
+    pill_size, pill_font = fit_size(
+        args.font_dir, PILL_TEXT, PILL_TARGET_W, PILL_WEIGHT, 12, 36
+    )
 
-    draw = ImageDraw.Draw(img)
+    # --- background ------------------------------------------------------
+    img = cover(Image.open(args.background), W, H)
+    dim_alpha = round(255 * BACKGROUND_DIM)
+    img.alpha_composite(Image.new("RGBA", (W, H), BACKGROUND_DIM_COLOR + (dim_alpha,)))
 
-    # --- title ---
-    title_cy = (title_top + title_bottom) // 2
-    draw.text((CX, title_cy), TITLE, font=title_font, fill=(243, 244, 246, 255), anchor="mm")
+    # --- icon ------------------------------------------------------------
+    icon = Image.open(args.icon).convert("RGBA").resize(
+        (ICON_SIZE, ICON_SIZE), Image.LANCZOS
+    )
+    icon_bbox = icon.getchannel("A").getbbox()
+    if icon_bbox is None:
+        raise SystemExit(f"Icon has no visible pixels: {args.icon}")
+    icon_center_x = (icon_bbox[0] + icon_bbox[2] - 1) / 2
+    icon_pos = (round(CX - icon_center_x), ICON_TOP)
+    img.alpha_composite(shadow(icon, icon_pos, 18, (0, 12), 0.55, ICON_SHADOW))
+    img.alpha_composite(icon, icon_pos)
 
-    # --- subtitle ---
-    subtitle_cy = (subtitle_top + subtitle_bottom) // 2
-    draw.text((CX, subtitle_cy), SUBTITLE, font=subtitle_font, fill=(170, 178, 190, 255), anchor="mm")
+    # --- title + subtitle ------------------------------------------------
+    title_tracking = round(TITLE_TRACKING_EM * title_size)
+    title_ink_w = add_text(
+        img,
+        TITLE,
+        title_font,
+        TITLE_FILL,
+        TITLE_INK_TOP,
+        TITLE_SHADOW,
+        11,
+        (0, 5),
+        0.46,
+        tracking=title_tracking,
+    )
+    subtitle_ink_w = add_text(
+        img,
+        SUBTITLE,
+        subtitle_font,
+        SUBTITLE_FILL,
+        SUBTITLE_INK_TOP,
+        SUBTITLE_SHADOW,
+        8,
+        (0, 3),
+        0.50,
+    )
 
-    # --- pill ---
-    dot_d = 8
-    dot_gap = 14
-    pad_x = 20
-    pill_w = int(round(pad_x + dot_d + dot_gap + pill_text_w + pad_x))
+    # --- translucent pill ------------------------------------------------
+    pill_text_layer, pill_text_w, pill_text_h = text_layer(
+        PILL_TEXT, pill_font, PILL_TEXT_FILL
+    )
+    pill_content_w = PILL_DOT_D + PILL_DOT_GAP + pill_text_w
+    pill_w = round(PILL_PAD_X * 2 + pill_content_w)
+    if pill_w % 2:
+        pill_w += 1
     pill_left = (W - pill_w) // 2
     pill_right = pill_left + pill_w
-    pill_cy = (pill_top + pill_bottom) // 2
-    print(f"pill left={pill_left} right={pill_right} w={pill_w} cy={pill_cy}")
-    draw.rounded_rectangle([pill_left, pill_top, pill_right, pill_bottom], radius=pill_h // 2, fill=(23, 22, 28, 255), outline=(52, 52, 64, 255), width=1)
-    # dot
-    dot_cx = pill_left + pad_x + dot_d // 2
-    dot_cy = pill_cy
-    draw.ellipse([dot_cx - dot_d // 2, dot_cy - dot_d // 2, dot_cx + dot_d // 2, dot_cy + dot_d // 2], fill=(0, 255, 137, 255))
-    # pill text
-    text_x = pill_left + pad_x + dot_d + dot_gap
-    draw.text((text_x, pill_cy), PILL_TEXT, font=pill_font, fill=(218, 222, 228, 255), anchor="lm")
+    pill_bottom = PILL_TOP + PILL_HEIGHT
 
-    # --- inset border (original: inset 22px, radius 34, 1px faint) ---
-    border = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    bd = ImageDraw.Draw(border)
-    bd.rounded_rectangle([22, 22, W - 22, H - 22], radius=34, outline=(255, 255, 255, 20), width=2)
-    img.alpha_composite(border)
+    pill_mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(pill_mask).rounded_rectangle(
+        [pill_left, PILL_TOP, pill_right, pill_bottom],
+        radius=PILL_RADIUS,
+        fill=255,
+    )
+    pill_shadow_alpha = pill_mask.filter(ImageFilter.GaussianBlur(16)).point(
+        lambda value: int(value * 0.45)
+    )
+    pill_shadow = Image.new("RGBA", (W, H), PILL_SHADOW + (0,))
+    pill_shadow.putalpha(pill_shadow_alpha)
+    img.alpha_composite(ImageChops.offset(pill_shadow, 0, 8))
 
-    # convert to RGB, save PNG (optimize)
-    out = img.convert("RGB")
+    pill_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    pill_draw = ImageDraw.Draw(pill_layer)
+    pill_draw.rounded_rectangle(
+        [pill_left, PILL_TOP, pill_right, pill_bottom],
+        radius=PILL_RADIUS,
+        fill=PILL_FILL,
+        outline=PILL_BORDER,
+        width=1,
+    )
+    img.alpha_composite(pill_layer)
+
+    draw = ImageDraw.Draw(img)
+    content_left = pill_left + (pill_w - pill_content_w) // 2
+    dot_cx = content_left + PILL_DOT_D // 2
+    dot_cy = (PILL_TOP + pill_bottom) // 2
+    draw.ellipse(
+        [
+            dot_cx - PILL_DOT_D // 2,
+            dot_cy - PILL_DOT_D // 2,
+            dot_cx + PILL_DOT_D // 2,
+            dot_cy + PILL_DOT_D // 2,
+        ],
+        fill=PILL_DOT_FILL,
+    )
+    text_x = content_left + PILL_DOT_D + PILL_DOT_GAP
+    text_y = round(dot_cy - pill_text_h / 2)
+    img.alpha_composite(pill_text_layer, (round(text_x), text_y))
+
+    # --- save ------------------------------------------------------------
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    out = img.convert("RGB")
     out.save(args.output, "PNG", optimize=True)
-    print(f"saved {args.output} {out.size}")
-    # verify: no bottom gradient line, check bottom rows
-    for y in [620, 626, 627, 628, 629]:
-        print(f"bottom y={y}", out.getpixel((600, y)), out.getpixel((10, y)), out.getpixel((1190, y)))
-
-
-def run_patch(args: argparse.Namespace) -> None:
-    import numpy as np
-
-    orig = Image.open(args.src).convert("RGB")
-    w, h = orig.size
-    a = np.asarray(orig).copy()
-    print(f"orig {w}x{h}")
-
-    dy, y0, y1 = PATCH_DY, PATCH_Y0, PATCH_Y1
-    new = a.copy()
-
-    # 1) Shift block down by DY: new[Y0+DY:Y1+DY+1] = old[Y0:Y1+1]
-    new[y0 + dy : y1 + dy + 1, :] = a[y0 : y1 + 1, :]
-
-    # 2) Fill vacated top strip [Y0, Y0+DY) with the row just above the block (per-column background)
-    new[y0 : y0 + dy, :] = a[y0 - 1, :]
-
-    # 3) Remove domain text: rect x 480-720, y 572-602, fill per-column from row 560 (solid background)
-    # row 560 in original is pure background (domain text is at y 582-593, x 494-703)
-    for x in range(480, 721):
-        new[572:603, x] = a[560, x]
-    # Note: domain is below Y1+DY (538), so unaffected by shift; a[560] is still background.
-
-    # 4) Remove bottom gradient line: rows 625-629 -> copy row 624 (background just above line)
-    for y in range(625, 630):
-        new[y, :] = a[624, :]
-
-    out = Image.fromarray(new)
-    out.save(args.output, "PNG", optimize=True)
-    print(f"saved {args.output}")
-
-    # --- verification ---
-    check = np.asarray(out).astype(int)
-
-    # domain region should have 0 bright text pixels
-    region = check[560:610, 450:750]
-    mask = (region[:, :, 0] > 100) & (region[:, :, 1] > 100) & (region[:, :, 2] > 100)
-    print(f"domain bright pixels: {int(mask.sum())} (original was 331, expect 0)")
-
-    # bottom line: mean R of bottom 4 rows should be low (dark), not gradient
-    bottom = check[626:630]
-    print(f"bottom 4 rows mean R={float(bottom[:,:,0].mean()):.1f} (expect <50, was ~180)")
-    for x in [0, 100, 300, 600, 900, 1199]:
-        print(f"  bottom x={x} new={tuple(check[629,x])} orig={tuple(a[629,x])}")
-
-    # content bounds (bright >80) to show recentering
-    bright = check.mean(axis=2) > 80
-    ys, xs = np.where(bright[:560, :])
-    print(f"new bright y: {ys.min()}..{ys.max()} center {(ys.min()+ys.max())/2} x: {xs.min()}..{xs.max()} center {(xs.min()+xs.max())/2}")
-    bright0 = a.mean(axis=2) > 80
-    ys0, xs0 = np.where(bright0[:560, :])
-    print(f"orig bright y: {ys0.min()}..{ys0.max()} center {(ys0.min()+ys0.max())/2}")
-
-    # font identity: title region translated by DY should match exactly
-    # compare new[291+DY:380+DY] vs orig[291:380] in title x-range
-    d = np.abs(check[291 + dy : 380 + dy, 398:805].astype(int) - a[291:380, 398:805].astype(int)).max()
-    print(f"title patch max diff after DY shift: {d} (expect 0 -> glyphs pixel-identical)")
-
-    # background identity at corners (must be unchanged)
-    for (x, y) in [(0, 0), (600, 0), (1199, 0), (0, 50), (1199, 50)]:
-        print(f"bg ({x},{y}) new={tuple(check[y,x])} orig={tuple(a[y,x])} same={np.array_equal(check[y,x], a[y,x])}")
-
-    # size
-    print("size", out.size)
+    print(
+        f"title size={title_size} ink={title_ink_w}px "
+        f"tracking={title_tracking}px"
+    )
+    print(f"subtitle size={subtitle_size} ink={subtitle_ink_w}px")
+    print(f"pill text size={pill_size} ink={pill_text_w}px, pill width={pill_w}px")
+    try:
+        output_label = args.output.relative_to(ROOT)
+    except ValueError:
+        output_label = args.output
+    print(f"wrote {output_label} ({W}x{H})")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawTextHelpFormatter,
-        description="Generate or patch landing/assets/og-image.png (1200x630)",
-        epilog=(
-            "examples:\n"
-            "  %(prog)s                                  # generate (default)\n"
-            "  %(prog)s generate --output /tmp/og.png\n"
-            "  %(prog)s patch --src og-image.original.png\n"
-        ),
+        description="Generate landing/assets/og-image.png (1200x630)",
     )
-    sub = parser.add_subparsers(dest="command")
-
-    gen = sub.add_parser("generate", help="Draw OG image from scratch (default mode)")
-    gen.add_argument("--output", type=Path, default=DEFAULT_OUT, help="Output PNG path")
-    gen.add_argument("--icon", type=Path, default=DEFAULT_ICON, help="Source app icon PNG (256px)")
-    gen.add_argument("--font-dir", type=Path, default=DEFAULT_FONT_DIR, help="Folder with Inter *.otf files")
-
-    pat = sub.add_parser("patch", help="Surgically patch a pre-existing og-image.png")
-    pat.add_argument("--src", type=Path, required=True, help="Original (pre-cleanup) og-image.png, 1200x630")
-    pat.add_argument("--output", type=Path, default=DEFAULT_OUT, help="Output PNG path")
-
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_OUT,
+        help="Output PNG path",
+    )
+    parser.add_argument(
+        "--icon",
+        type=Path,
+        default=DEFAULT_ICON,
+        help="Source app icon PNG",
+    )
+    parser.add_argument(
+        "--background",
+        type=Path,
+        default=DEFAULT_BACKGROUND,
+        help="Wallpaper background image",
+    )
+    parser.add_argument(
+        "--font-dir",
+        type=Path,
+        default=DEFAULT_FONT_DIR,
+        help="Folder with Plus Jakarta Sans font files",
+    )
     return parser
 
 
 def main() -> None:
-    parser = build_parser()
-    argv = sys.argv[1:]
-    # Let top-level --help/-h show both subcommands.
-    if argv in (["--help"], ["-h"], ["help"]):
-        parser.print_help()
-        return
-    # Bare invocation (e.g. `npm run assets:og`) is treated as `generate`
-    # so existing commands keep working.
-    if not argv or argv[0] not in ("generate", "patch"):
-        argv = ["generate", *argv]
-    args = parser.parse_args(argv)
-    if args.command == "patch":
-        run_patch(args)
-    else:
-        run_generate(args)
+    run(build_parser().parse_args())
 
 
 if __name__ == "__main__":

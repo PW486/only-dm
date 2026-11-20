@@ -745,6 +745,11 @@
       white-space: nowrap;
     }
 
+    .macos-install-note .install-hint {
+      display: block;
+      margin-top: 12px;
+    }
+
     /* FAQ */
     .faq-list {
       max-width: 800px;
@@ -1498,7 +1503,7 @@
         <strong>macOS: app blocked on first launch?</strong>
         OnlyDM is ad-hoc signed and not notarized yet, so Gatekeeper may warn the first time. Drag OnlyDM into <code style="display: inline; margin: 0; padding: 2px 5px;">/Applications</code>, then try opening it. If macOS still blocks it, open <strong>System Settings → Privacy &amp; Security</strong> and choose <strong>Open Anyway</strong>. If that does not work, run this command in Terminal and open OnlyDM again:
         <code>sudo xattr -r -d com.apple.quarantine /Applications/OnlyDM.app</code>
-        Enter your Mac account password when prompted. You only need to do this once.
+        <span class="install-hint">Enter your Mac account password when prompted. You only need to do this once.</span>
       </aside>
     </div>
   </section>

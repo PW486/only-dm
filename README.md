@@ -97,7 +97,7 @@ Download the latest macOS release from the **[Releases](https://github.com/PW486
 
 Release builds check for updates on launch, and **Check for Updates...** is available from the application menu.
 
-The first updater-enabled release must be installed manually. Users on `v0.1.x` need to download the latest release once; after that, updates are delivered in-app.
+The first updater-enabled release must be installed manually. Users on `v0.1.x` need to download the latest release once. After that, updates are delivered in-app.
 
 ---
 
@@ -179,7 +179,7 @@ OnlyDM combines a lightweight Rust host shell with native system webviews:
 
 ## 🔒 Privacy & Security
 
-- The app loads Instagram directly in the system webview; there is no OnlyDM proxy or intermediate server.
+- The app loads Instagram directly in the system webview. There is no OnlyDM proxy or intermediate server.
 - The desktop app has no analytics or telemetry. The landing page uses Google Analytics to count visits.
 - Session data is stored locally by WebKit in the app data directory. Logging out clears cookies and browsing data.
 - External links and user profiles are handed to the system browser instead of loading inside the messaging window.

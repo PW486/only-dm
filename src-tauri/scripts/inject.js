@@ -1240,6 +1240,12 @@
    * Single-account mode: disables the username/account switcher at the top of
    * the DM conversation list. The chevron is hidden via CSS and activation is
    * blocked in the capture phase so Instagram's React handler never runs.
+   *
+   * Back controls (DM search back, Requests back) are never the account
+   * switcher, so they are excluded explicitly: their icon's accessible name
+   * ("Back" in every locale, exposed as both `aria-label` and `<title>`) also
+   * lands in the fallback, which would hide the chevron via the locked CSS
+   * once the real switcher is already locked and skipped on later passes.
    */
   function lockDmAccountSwitcher() {
     if (!window.location.pathname.startsWith("/direct")) return;
@@ -1258,6 +1264,15 @@
     for (let i = 0; i < candidates.length; i++) {
       const el = candidates[i];
       if (el.id === LOGOUT_BTN_ID) continue;
+      if (isNativeBackButton(el)) {
+        // Clear any stale lock from earlier passes so the icon stays visible.
+        if (el.getAttribute(ACCOUNT_LOCK_ATTR) === "true") {
+          el.removeAttribute(ACCOUNT_LOCK_ATTR);
+          el.removeAttribute("aria-disabled");
+          el.removeAttribute("tabindex");
+        }
+        continue;
+      }
       if (el.closest(`[${ACCOUNT_LOCK_ATTR}="true"]`)) continue;
       if (el.closest('[data-ig-dm-thread-row="true"]')) continue;
       if (el.querySelector("img, canvas")) continue;

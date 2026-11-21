@@ -44,8 +44,10 @@
   const STYLE_ID = "ig-dm-desktop-custom-css";
   const LOGOUT_BTN_ID = "ig-dm-logout-btn";
   const LOGOUT_MODAL_ID = "ig-dm-logout-modal-backdrop";
+  const BACK_BTN_ID = "ig-dm-back-btn";
   const ACCOUNT_LOCK_ATTR = "data-ig-dm-account-locked";
   const NOTES_TRAY_ATTR = "data-ig-dm-notes-tray";
+  const REPLACED_BACK_ATTR = "data-ig-dm-replaced-back";
 
   // Localized labels for the "Your note" bubble that sits at the start of the
   // Notes tray in the DM inbox. Instagram generates obfuscated class names on
@@ -250,11 +252,49 @@
     },
   };
 
+  // Localized tooltip for the back button shown on the standalone Requests pages,
+  // which have no global navigation in this app to return to the inbox.
+  const BACK_I18N = {
+    ko: "뒤로",
+    en: "Back",
+    ja: "戻る",
+    zh: "返回",
+    "zh-tw": "返回",
+    "zh-hk": "返回",
+    es: "Atrás",
+    fr: "Retour",
+    de: "Zurück",
+    pt: "Voltar",
+    it: "Indietro",
+    ru: "Назад",
+    vi: "Quay lại",
+    th: "ย้อนกลับ",
+    id: "Kembali",
+    tr: "Geri",
+  };
+
+  const BACK_LABELS = new Set(
+    Object.values(BACK_I18N).map((label) => label.toLowerCase())
+  );
+  BACK_LABELS.add("back");
+
+  // Visible "Message requests" / "Hidden requests" header titles. Instagram
+  // generates obfuscated class names on every build, so the header is located
+  // by visible text and layout structure instead of class names.
+  const REQUESTS_TITLE_LABELS = new Set([
+    "message requests",
+    "message request",
+    "hidden requests",
+    "hidden request",
+    "메시지 요청",
+    "숨겨진 요청",
+  ]);
+
   /**
-   * Resolves the localized Logout string bundle matching Instagram's `<html lang="...">`
+   * Resolves the current UI language from Instagram's `<html lang="...">`
    * attribute (user's Instagram language setting) with fallback to `navigator.language`.
    */
-  function getLogoutStrings() {
+  function getPageLanguage() {
     const rawLang = (
       (document.documentElement && document.documentElement.getAttribute("lang")) ||
       navigator.language ||
@@ -263,16 +303,30 @@
       .trim()
       .toLowerCase();
 
-    if (LOGOUT_I18N[rawLang]) {
-      return LOGOUT_I18N[rawLang];
+    if (LOGOUT_I18N[rawLang] || BACK_I18N[rawLang]) {
+      return rawLang;
     }
 
     const baseLang = rawLang.split("-")[0];
-    if (LOGOUT_I18N[baseLang]) {
-      return LOGOUT_I18N[baseLang];
+    if (LOGOUT_I18N[baseLang] || BACK_I18N[baseLang]) {
+      return baseLang;
     }
 
-    return LOGOUT_I18N.en;
+    return "en";
+  }
+
+  /**
+   * Resolves the localized Logout string bundle matching the user's language setting.
+   */
+  function getLogoutStrings() {
+    return LOGOUT_I18N[getPageLanguage()] || LOGOUT_I18N.en;
+  }
+
+  /**
+   * Resolves the localized "Back" label matching the user's language setting.
+   */
+  function getBackLabel() {
+    return BACK_I18N[getPageLanguage()] || BACK_I18N.en;
   }
 
   // Selectors that only exist in the global Instagram navigation bar / sidebar
@@ -619,6 +673,47 @@
       overflow: hidden !important;
       pointer-events: none !important;
     }
+
+    /* ==========================================================================
+       8. Back Button for the Standalone Requests Pages
+       ========================================================================== */
+
+    /* The Requests header already has a mobile-style back control that only
+       moves inside Requests. Replace it with our inbox back button in the
+       same flex slot so it never overlaps the "Message requests" title and
+       stays vertically centered with it. */
+    [${REPLACED_BACK_ATTR}="true"] {
+      display: none !important;
+    }
+
+    #${BACK_BTN_ID} {
+      position: static;
+      flex: 0 0 auto;
+      align-self: center;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      margin: 0;
+      margin-inline-end: 8px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      background: transparent;
+      color: rgb(var(--ig-primary-icon, 0, 0, 0));
+      cursor: pointer;
+      transform-origin: center;
+      transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+    }
+
+    #${BACK_BTN_ID}:hover {
+      transform: scale(1.05);
+    }
+
+    #${BACK_BTN_ID}:active {
+      opacity: 0.7;
+    }
   `;
 
   /**
@@ -856,6 +951,308 @@
   }
 
   /**
+   * Returns true on the standalone message-requests pages, where Instagram
+   * hides the DM chat tabs and this app also hides the global navigation. That
+   * combination otherwise leaves no visible way back to the inbox.
+   */
+  function isRequestsPage() {
+    const path = window.location.pathname.toLowerCase();
+    return path === "/direct/requests" || path.startsWith("/direct/requests/");
+  }
+
+  // Grace period before a floating back button may appear when the Requests
+  // header has not rendered yet. Loading should not show the arrow.
+  const REQUESTS_FALLBACK_GRACE_MS = 4000;
+  let requestsFallbackStartedAt = 0;
+  let requestsFallbackTimerId = null;
+
+  /**
+   * Picks the page a Requests back button should return to: the requests list
+   * for hidden requests, and the DM inbox for the requests list itself.
+   */
+  function getRequestsBackTarget() {
+    const path = window.location.pathname.toLowerCase();
+    if (path.startsWith("/direct/requests/hidden")) {
+      return "https://www.instagram.com/direct/requests/";
+    }
+    return "https://www.instagram.com/direct/inbox/";
+  }
+
+  /**
+   * Returns true when a button carries Instagram's "Back" (arrow-left) icon.
+   * The label may be localized, so match common translations in addition to
+   * the English source label.
+   */
+  function isNativeBackButton(el) {
+    if (!el || el.id === BACK_BTN_ID || el.id === LOGOUT_BTN_ID) return false;
+    if (el.querySelector("img, canvas")) return false;
+
+    const btnLabel = (
+      el.getAttribute("aria-label") || el.getAttribute("title") || ""
+    )
+      .trim()
+      .toLowerCase();
+    if (BACK_LABELS.has(btnLabel)) return true;
+
+    const svgs = el.querySelectorAll("svg");
+    if (svgs.length === 0) return false;
+
+    for (let i = 0; i < svgs.length; i++) {
+      const svg = svgs[i];
+      const titleEl = svg.querySelector("title");
+      const labels = [
+        svg.getAttribute("alt"),
+        svg.getAttribute("aria-label"),
+        svg.getAttribute("title"),
+        titleEl ? titleEl.textContent : "",
+      ]
+        .filter(Boolean)
+        .map((label) => label.trim().toLowerCase());
+
+      for (let j = 0; j < labels.length; j++) {
+        if (BACK_LABELS.has(labels[j])) return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Finds Instagram's built-in Requests back control (mobile navigation button)
+   * near the top-left of the left rail. Returns null when it is not rendered.
+   */
+  function findNativeRequestsBackButton(mainEl) {
+    const candidates = mainEl.querySelectorAll('button, [role="button"]');
+    // Measure relative to <main>: before the global nav is hidden, the rail
+    // is offset by the sidebar width, so absolute viewport coordinates would
+    // miss the button on the first pass after a navigation.
+    const mainRect = mainEl.getBoundingClientRect();
+
+    for (let i = 0; i < candidates.length; i++) {
+      const el = candidates[i];
+      if (el.id === BACK_BTN_ID || el.id === LOGOUT_BTN_ID) continue;
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 24 || rect.height < 24) continue;
+      if (rect.top - mainRect.top > 170 || rect.left - mainRect.left > 200) continue;
+      if (!isNativeBackButton(el)) continue;
+
+      return el;
+    }
+
+    return null;
+  }
+
+  /**
+   * Walks up from the Requests title (or its native back button) to the section
+   * header row: a left-edge flex row with a title, 36-84px tall and at most
+   * left-rail width (so the right-pane header is never mistaken for it).
+   */
+  function walkUpToRequestsHeader(startEl, mainEl) {
+    let el = startEl;
+    // Measure relative to <main> (see findNativeRequestsBackButton).
+    const mainRect = mainEl.getBoundingClientRect();
+
+    for (let depth = 0; el && el !== mainEl && el !== document.body && depth < 12; depth++) {
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+
+      if (
+        style.display === "flex" &&
+        style.flexDirection === "row" &&
+        rect.height >= 36 &&
+        rect.height <= 84 &&
+        rect.width >= 180 &&
+        rect.width <= 600 &&
+        rect.top - mainRect.top < 170 &&
+        rect.left - mainRect.left <= 50
+      ) {
+        return el;
+      }
+
+      el = el.parentElement;
+    }
+
+    return null;
+  }
+
+  /**
+   * Finds the Requests section header from the visible title text, falling back
+   * to the bold headline at the top-left of the left rail so non-English
+   * titles still resolve without knowing their translations.
+   */
+  function findRequestsHeaderByTitle(mainEl) {
+    const texts = mainEl.querySelectorAll("span, div, h1, h2, h3");
+    // Measure relative to <main> (see findNativeRequestsBackButton).
+    const mainRect = mainEl.getBoundingClientRect();
+
+    for (let i = 0; i < texts.length; i++) {
+      const el = texts[i];
+      if (el.querySelector("button, a[href], input, textarea")) continue;
+
+      const text = (el.textContent || "").trim();
+      if (!REQUESTS_TITLE_LABELS.has(text.toLowerCase())) continue;
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) continue;
+      if (rect.top - mainRect.top > 170 || rect.left - mainRect.left > 200) continue;
+
+      const header = walkUpToRequestsHeader(el, mainEl);
+      if (header) return header;
+    }
+
+    for (let i = 0; i < texts.length; i++) {
+      const el = texts[i];
+      if (el.querySelector("button, a[href], input, textarea")) continue;
+
+      const text = (el.textContent || "").trim();
+      if (!text || text.length > 50) continue;
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) continue;
+      if (rect.top - mainRect.top > 120 || rect.left - mainRect.left > 200) continue;
+
+      const style = window.getComputedStyle(el);
+      const fontWeight = parseInt(style.fontWeight, 10);
+      const fontSize = parseFloat(style.fontSize);
+      if (fontWeight >= 600 && fontSize >= 16) {
+        const header = walkUpToRequestsHeader(el, mainEl);
+        if (header) return header;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Injects the inbox back button inline in the Requests section header, in the
+   * slot of Instagram's own Requests-only back control, and keeps its
+   * localized tooltip in sync with the user's active language. Placing it in
+   * the header flow (instead of fixed to the viewport) keeps it from covering
+   * the "Message requests" title and vertically centered with it.
+   */
+  function ensureRequestsBackButton() {
+    const existingBtn = document.getElementById(BACK_BTN_ID);
+
+    if (!isRequestsPage()) {
+      requestsFallbackStartedAt = 0;
+      if (requestsFallbackTimerId !== null) {
+        window.clearTimeout(requestsFallbackTimerId);
+        requestsFallbackTimerId = null;
+      }
+      if (existingBtn) existingBtn.remove();
+      return;
+    }
+
+    const label = getBackLabel();
+    let backBtn = existingBtn;
+
+    if (backBtn) {
+      if (backBtn.title !== label) {
+        backBtn.title = label;
+        backBtn.setAttribute("aria-label", label);
+      }
+    } else {
+      backBtn = document.createElement("button");
+      backBtn.id = BACK_BTN_ID;
+      backBtn.type = "button";
+      backBtn.title = label;
+      backBtn.setAttribute("aria-label", label);
+      backBtn.innerHTML = `
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="19" y1="12" x2="5" y2="12" />
+          <polyline points="12 19 5 12 12 5" />
+        </svg>
+      `;
+
+      backBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        window.location.assign(getRequestsBackTarget());
+      });
+    }
+
+    const mainEl = document.querySelector('main[role="main"]');
+    let header = null;
+
+    if (
+      backBtn.parentElement &&
+      backBtn.parentElement !== document.body &&
+      backBtn.parentElement !== document.documentElement &&
+      mainEl
+    ) {
+      header =
+        walkUpToRequestsHeader(backBtn.parentElement, mainEl) ||
+        backBtn.parentElement;
+    }
+
+    if (!header && mainEl) {
+      const nativeBtn = findNativeRequestsBackButton(mainEl);
+      if (nativeBtn) {
+        header = walkUpToRequestsHeader(nativeBtn, mainEl);
+      }
+      if (!header) {
+        header = findRequestsHeaderByTitle(mainEl);
+      }
+      // Hide Instagram's Requests-only back control only when our button takes
+      // its slot, so the header never shows two back arrows.
+      if (header && nativeBtn) {
+        nativeBtn.setAttribute(REPLACED_BACK_ATTR, "true");
+      }
+    }
+
+    if (header) {
+      requestsFallbackStartedAt = 0;
+      if (requestsFallbackTimerId !== null) {
+        window.clearTimeout(requestsFallbackTimerId);
+        requestsFallbackTimerId = null;
+      }
+      backBtn.style.removeProperty("position");
+      backBtn.style.removeProperty("top");
+      backBtn.style.removeProperty("left");
+      backBtn.style.removeProperty("z-index");
+
+      if (
+        backBtn.parentElement !== header ||
+        header.firstElementChild !== backBtn
+      ) {
+        header.insertBefore(backBtn, header.firstChild);
+      }
+    } else {
+      // Header not found yet (page still loading): keep the button hidden so
+      // it does not cover the loading UI. Only float it if the header is
+      // still missing after the grace period, as a last-resort way back.
+      const now = Date.now();
+      if (!requestsFallbackStartedAt) {
+        requestsFallbackStartedAt = now;
+      }
+      if (now - requestsFallbackStartedAt < REQUESTS_FALLBACK_GRACE_MS) {
+        if (backBtn.parentElement) backBtn.remove();
+        // Re-check when the grace period expires even if no DOM mutation
+        // happens before then (e.g. an empty page with no further changes).
+        if (requestsFallbackTimerId === null) {
+          const remaining =
+            REQUESTS_FALLBACK_GRACE_MS - (now - requestsFallbackStartedAt);
+          requestsFallbackTimerId = window.setTimeout(() => {
+            requestsFallbackTimerId = null;
+            ensureRequestsBackButton();
+          }, remaining);
+        }
+        return;
+      }
+      // The explicit z-index keeps the floating button above Instagram's
+      // stacked content instead of rendering behind it and looking missing.
+      if (document.body && backBtn.parentElement !== document.body) {
+        document.body.appendChild(backBtn);
+      }
+      backBtn.style.setProperty("position", "fixed", "important");
+      backBtn.style.setProperty("top", "12px", "important");
+      backBtn.style.setProperty("left", "12px", "important");
+      backBtn.style.setProperty("z-index", "999998", "important");
+    }
+  }
+
+  /**
    * Returns true when an SVG is Instagram's small "down chevron" icon used by
    * the DM account switcher. Its label may be localized, so match common
    * translations in addition to the English aria-label/title.
@@ -878,6 +1275,12 @@
    * Single-account mode: disables the username/account switcher at the top of
    * the DM conversation list. The chevron is hidden via CSS and activation is
    * blocked in the capture phase so Instagram's React handler never runs.
+   *
+   * Back controls (DM search back, Requests back) are never the account
+   * switcher, so they are excluded explicitly: their icon's accessible name
+   * ("Back" in every locale, exposed as both `aria-label` and `<title>`) also
+   * lands in the fallback, which would hide the chevron via the locked CSS
+   * once the real switcher is already locked and skipped on later passes.
    */
   function lockDmAccountSwitcher() {
     if (!window.location.pathname.startsWith("/direct")) return;
@@ -896,6 +1299,15 @@
     for (let i = 0; i < candidates.length; i++) {
       const el = candidates[i];
       if (el.id === LOGOUT_BTN_ID) continue;
+      if (isNativeBackButton(el)) {
+        // Clear any stale lock from earlier passes so the icon stays visible.
+        if (el.getAttribute(ACCOUNT_LOCK_ATTR) === "true") {
+          el.removeAttribute(ACCOUNT_LOCK_ATTR);
+          el.removeAttribute("aria-disabled");
+          el.removeAttribute("tabindex");
+        }
+        continue;
+      }
       if (el.closest(`[${ACCOUNT_LOCK_ATTR}="true"]`)) continue;
       if (el.closest('[data-ig-dm-thread-row="true"]')) continue;
       if (el.querySelector("img, canvas")) continue;
@@ -1466,6 +1878,11 @@
             continue;
           }
 
+          // Never hide app-injected UI that intentionally lives at the page root.
+          if (sib.id === BACK_BTN_ID) {
+            continue;
+          }
+
           const hasGlobalNav = Boolean(sib.querySelector(GLOBAL_NAV_SELECTORS));
 
           // Protect active modal dialogs (e.g. shared Post/Reel/Story popup, Logout modal)
@@ -1738,10 +2155,13 @@
     injectStyles();
     hideCallAndVoiceButtons();
     hideNotesTray();
+    // Hide the global nav before measuring positions, so the Requests header
+    // is already at the left edge when the back button is placed.
+    hideGlobalNavigationAndEliminateBlankSpace();
     ensureLogoutButton();
+    ensureRequestsBackButton();
     lockDmAccountSwitcher();
     suppressIncomingCalls();
-    hideGlobalNavigationAndEliminateBlankSpace();
     enhanceDmConversationList();
   }
 
@@ -1751,14 +2171,38 @@
   window.addEventListener("resize", () => {
     hideCallAndVoiceButtons();
     hideNotesTray();
-    ensureLogoutButton();
-    lockDmAccountSwitcher();
     hideGlobalNavigationAndEliminateBlankSpace();
+    ensureLogoutButton();
+    ensureRequestsBackButton();
+    lockDmAccountSwitcher();
     enhanceDmConversationList();
   });
 
+  // Batch optimizations with requestAnimationFrame, with a timer fallback so
+  // the Requests back button is still restored when frames are paused (e.g.
+  // a background window): without the fallback, a header remounted by React
+  // on Hidden -> Back would stay button-less until the next mutation.
+  let optimizationsPending = false;
+  function scheduleOptimizations() {
+    if (optimizationsPending) return;
+    optimizationsPending = true;
+
+    const run = () => {
+      if (!optimizationsPending) return;
+      optimizationsPending = false;
+      applyOptimizations();
+    };
+
+    requestAnimationFrame(run);
+    setTimeout(run, 150);
+  }
+
+  // SPA back/forward (e.g. Hidden requests -> browser Back) already produces
+  // DOM mutations, but re-run explicitly so the header button is restored
+  // even if React renders without a further mutation afterwards.
+  window.addEventListener("popstate", scheduleOptimizations);
+
   // Observe DOM mutations for SPA navigation & responsive breakpoint switches
-  let rafPending = false;
   const observer = new MutationObserver(() => {
     if (!document.getElementById(STYLE_ID)) {
       injectStyles();
@@ -1766,13 +2210,7 @@
     // Handle the call modal immediately (before the next paint) so the popup
     // never becomes visible and the ringtone is stopped as early as possible.
     suppressIncomingCalls();
-    if (!rafPending) {
-      rafPending = true;
-      requestAnimationFrame(() => {
-        rafPending = false;
-        applyOptimizations();
-      });
-    }
+    scheduleOptimizations();
   });
 
   observer.observe(document.documentElement, {

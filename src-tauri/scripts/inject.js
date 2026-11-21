@@ -960,6 +960,12 @@
     return path === "/direct/requests" || path.startsWith("/direct/requests/");
   }
 
+  // Grace period before a floating back button may appear when the Requests
+  // header has not rendered yet. Loading should not show the arrow.
+  const REQUESTS_FALLBACK_GRACE_MS = 4000;
+  let requestsFallbackStartedAt = 0;
+  let requestsFallbackTimerId = null;
+
   /**
    * Picks the page a Requests back button should return to: the requests list
    * for hidden requests, and the DM inbox for the requests list itself.
@@ -1129,6 +1135,11 @@
     const existingBtn = document.getElementById(BACK_BTN_ID);
 
     if (!isRequestsPage()) {
+      requestsFallbackStartedAt = 0;
+      if (requestsFallbackTimerId !== null) {
+        window.clearTimeout(requestsFallbackTimerId);
+        requestsFallbackTimerId = null;
+      }
       if (existingBtn) existingBtn.remove();
       return;
     }
@@ -1191,6 +1202,11 @@
     }
 
     if (header) {
+      requestsFallbackStartedAt = 0;
+      if (requestsFallbackTimerId !== null) {
+        window.clearTimeout(requestsFallbackTimerId);
+        requestsFallbackTimerId = null;
+      }
       backBtn.style.removeProperty("position");
       backBtn.style.removeProperty("top");
       backBtn.style.removeProperty("left");
@@ -1203,10 +1219,29 @@
         header.insertBefore(backBtn, header.firstChild);
       }
     } else {
-      // Header not found yet (page still loading): float the button so there
-      // is always a way back, without pushing page layout. The explicit
-      // z-index keeps the floating button above Instagram's stacked content
-      // instead of rendering behind it and looking missing.
+      // Header not found yet (page still loading): keep the button hidden so
+      // it does not cover the loading UI. Only float it if the header is
+      // still missing after the grace period, as a last-resort way back.
+      const now = Date.now();
+      if (!requestsFallbackStartedAt) {
+        requestsFallbackStartedAt = now;
+      }
+      if (now - requestsFallbackStartedAt < REQUESTS_FALLBACK_GRACE_MS) {
+        if (backBtn.parentElement) backBtn.remove();
+        // Re-check when the grace period expires even if no DOM mutation
+        // happens before then (e.g. an empty page with no further changes).
+        if (requestsFallbackTimerId === null) {
+          const remaining =
+            REQUESTS_FALLBACK_GRACE_MS - (now - requestsFallbackStartedAt);
+          requestsFallbackTimerId = window.setTimeout(() => {
+            requestsFallbackTimerId = null;
+            ensureRequestsBackButton();
+          }, remaining);
+        }
+        return;
+      }
+      // The explicit z-index keeps the floating button above Instagram's
+      // stacked content instead of rendering behind it and looking missing.
       if (document.body && backBtn.parentElement !== document.body) {
         document.body.appendChild(backBtn);
       }

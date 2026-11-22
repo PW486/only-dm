@@ -1067,7 +1067,7 @@
       /* Footer */
       footer {
         padding: 40px 0 28px;
-        padding-bottom: max(72px, calc(28px + env(safe-area-inset-bottom, 0px)));
+        padding-bottom: max(96px, calc(28px + env(safe-area-inset-bottom, 0px)));
       }
       .footer-top {
         flex-direction: column;
@@ -1084,10 +1084,11 @@
         justify-content: space-between;
         gap: 16px;
       }
-      .back-to-top {
+      .footer-bottom .back-to-top {
         display: inline-flex;
         align-items: center;
         min-height: 44px;
+        color: var(--text);
       }
     }
 
@@ -1117,6 +1118,14 @@
       }
       .section-desc {
         font-size: 0.95rem;
+      }
+      /* Keep both footer items on the left so the link never sits under
+         Safari's floating bottom toolbar on a phone. */
+      .footer-bottom {
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: flex-start;
+        gap: 8px;
       }
     }
 

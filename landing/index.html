@@ -183,6 +183,7 @@
       letter-spacing: -0.02em;
     }
 
+    /* Keep the brand mark as a high-res PNG: Safari rasterizes filtered SVGs at 1x. */
     .brand-logo {
       width: 40px;
       height: 40px;
@@ -802,6 +803,7 @@
     footer {
       border-top: 1px solid var(--border);
       padding: 60px 0 40px;
+      padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
       background: #06070a;
       color: var(--text-dim);
       font-size: 0.875rem;
@@ -1065,6 +1067,7 @@
       /* Footer */
       footer {
         padding: 40px 0 28px;
+        padding-bottom: max(72px, calc(28px + env(safe-area-inset-bottom, 0px)));
       }
       .footer-top {
         flex-direction: column;
@@ -1080,6 +1083,11 @@
         align-items: center;
         justify-content: space-between;
         gap: 16px;
+      }
+      .back-to-top {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
       }
     }
 
@@ -1227,7 +1235,7 @@
     <div class="container">
       <nav class="nav-inner" aria-label="Primary">
         <a href="#top" class="brand">
-          <img src="assets/app-icon.svg" alt="OnlyDM" class="brand-logo" width="40" height="40" />
+          <img src="assets/app-icon.png" alt="OnlyDM" class="brand-logo" width="40" height="40" />
           OnlyDM
         </a>
 
@@ -1584,7 +1592,7 @@
     <div class="container">
       <div class="footer-top">
         <div class="brand">
-          <img src="assets/app-icon.svg" alt="OnlyDM" class="brand-logo" width="40" height="40" />
+          <img src="assets/app-icon.png" alt="OnlyDM" class="brand-logo" width="40" height="40" />
           OnlyDM
         </div>
 

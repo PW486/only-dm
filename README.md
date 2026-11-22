@@ -31,11 +31,11 @@ Most people open Instagram on their desktop just to reply to an urgent direct me
 **OnlyDM** changes that. Built on **Tauri v2** and **Rust**, it is a fast, distraction-free desktop client dedicated to direct messaging. No explore feed, no endless reels, and no background resource hogs.
 
 <p align="center">
-  <img src="landing/assets/screenshot.png" alt="OnlyDM interface preview with sample conversations" width="850" />
+  <img src="landing/assets/screenshot.png" alt="OnlyDM macOS app showing a direct message conversation with sample contacts" width="850" />
 </p>
 
 <p align="center">
-  <sub>Interface preview with sample conversations.</sub>
+  <sub>OnlyDM on macOS with sample conversations.</sub>
 </p>
 
 ---

@@ -368,60 +368,15 @@
     .mockup-container {
       margin-top: 60px;
       position: relative;
-      border-radius: 18px;
-      padding: 8px;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.02) 100%);
-      box-shadow: 
+      border-radius: 16px;
+      box-shadow:
         0 30px 80px rgba(0, 0, 0, 0.8),
-        0 0 100px rgba(225, 48, 108, 0.2);
-    }
-
-    .window-frame {
-      background: #0f1118;
-      border-radius: 12px;
-      overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      text-align: left;
-    }
-
-    .window-header {
-      height: 44px;
-      background: #141722;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-      display: flex;
-      align-items: center;
-      padding: 0 16px;
-      position: relative;
-    }
-
-    .traffic-lights {
-      display: flex;
-      gap: 8px;
-    }
-
-    .dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-    }
-    .dot-close { background: #ff5f56; }
-    .dot-min { background: #ffbd2e; }
-    .dot-max { background: #27c93f; }
-
-    .window-title {
-      position: absolute;
-      left: 50%;
-      transform: translateX(-50%);
-      font-size: 0.825rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 8px;
+        0 0 100px rgba(225, 48, 108, 0.18);
     }
 
     .screenshot-frame {
       position: relative;
+      border-radius: 12px;
       background: #000000;
       overflow: hidden;
       display: block;
@@ -436,7 +391,6 @@
       width: 100%;
       height: auto;
       display: block;
-      object-fit: cover;
     }
 
     .mockup-caption {
@@ -937,20 +891,9 @@
       .mockup-container {
         margin-top: 36px;
         border-radius: 12px;
-        padding: 4px;
         box-shadow:
           0 20px 50px rgba(0, 0, 0, 0.7),
           0 0 60px rgba(225, 48, 108, 0.08);
-      }
-      .window-header {
-        height: 36px;
-      }
-      .dot {
-        width: 10px;
-        height: 10px;
-      }
-      .window-title {
-        font-size: 0.75rem;
       }
 
       /* Sections */
@@ -1294,29 +1237,16 @@
         <span>🔒 100% Direct Connection</span>
       </div>
 
-      <!-- App Mockup Window -->
+      <!-- Real macOS window capture -->
       <div class="mockup-container">
-        <div class="window-frame">
-          <div class="window-header">
-            <div class="traffic-lights">
-              <span class="dot dot-close"></span>
-              <span class="dot dot-min"></span>
-              <span class="dot dot-max"></span>
-            </div>
-            <div class="window-title">
-              OnlyDM
-            </div>
-          </div>
-
-          <div class="screenshot-frame">
-            <picture>
-              <source srcset="assets/screenshot.webp" type="image/webp" />
-              <img src="assets/screenshot.png" width="2200" height="1400" alt="OnlyDM interface preview showing a direct message conversation with sample contacts" class="screenshot-img" decoding="async" />
-            </picture>
-          </div>
+        <div class="screenshot-frame">
+          <picture>
+            <source srcset="assets/screenshot.webp" type="image/webp" />
+            <img src="assets/screenshot.png" width="2130" height="1494" alt="OnlyDM macOS app showing a direct message conversation with sample contacts" class="screenshot-img" decoding="async" />
+          </picture>
         </div>
       </div>
-      <p class="mockup-caption">Interface preview with sample conversations.</p>
+      <p class="mockup-caption">OnlyDM on macOS with sample conversations.</p>
     </div>
   </section>
 

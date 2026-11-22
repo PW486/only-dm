@@ -78,6 +78,16 @@ impl Drop for WindowCreationGuard {
 /// call/voice button hiding, localized logout UI, and DM + media popup navigation lock.
 const INIT_SCRIPT: &str = include_str!("../scripts/inject.js");
 
+/// Debug-only fixture layer used to produce privacy-safe marketing screenshots.
+/// It is never embedded in release builds and is only invoked from the
+/// "Developer > Prepare Demo Screenshot" menu item.
+#[cfg(debug_assertions)]
+const DOM_SKELETON_LIB: &str = include_str!("../scripts/dom-skeleton-lib.js");
+#[cfg(debug_assertions)]
+const SCREENSHOT_MODE_SCRIPT: &str = include_str!("../scripts/screenshot-mode.js");
+#[cfg(debug_assertions)]
+const DUMP_DOM_SKELETON_SCRIPT: &str = include_str!("../scripts/dump-dom-skeleton.js");
+
 /// Standard desktop User-Agent.
 const DESKTOP_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
@@ -647,7 +657,29 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         ],
     )?;
 
-    Menu::with_items(app, &[&app_submenu, &edit_submenu, &window_submenu])
+    // Marketing screenshot helpers are only available in debug builds. They
+    // sanitize the live DM DOM locally before capture; release bundles neither
+    // expose the menu nor embed the script.
+    #[cfg(debug_assertions)]
+    let developer_submenu = Submenu::with_items(
+        app,
+        "Developer",
+        true,
+        &[
+            &MenuItemBuilder::with_id("prepare-screenshot", "Prepare Demo Screenshot")
+                .build(app)?,
+            &MenuItemBuilder::with_id("reset-screenshot", "Reset Demo Screenshot").build(app)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItemBuilder::with_id("dump-dom-skeleton", "Copy DOM Skeleton").build(app)?,
+        ],
+    )?;
+
+    let mut menu_items: Vec<&dyn tauri::menu::IsMenuItem<R>> =
+        vec![&app_submenu, &edit_submenu, &window_submenu];
+    #[cfg(debug_assertions)]
+    menu_items.push(&developer_submenu);
+
+    Menu::with_items(app, &menu_items)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -662,6 +694,23 @@ pub fn run() {
                 request_native_logout(app);
             } else if event.id() == "check-updates" {
                 spawn_update_check(app.clone(), true);
+            } else {
+                #[cfg(debug_assertions)]
+                if event.id() == "prepare-screenshot" {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let script = format!("{}\n{}", DOM_SKELETON_LIB, SCREENSHOT_MODE_SCRIPT);
+                        let _ = window.eval(script);
+                    }
+                } else if event.id() == "reset-screenshot" {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.eval("window.location.reload();");
+                    }
+                } else if event.id() == "dump-dom-skeleton" {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let script = format!("{}\n{}", DOM_SKELETON_LIB, DUMP_DOM_SKELETON_SCRIPT);
+                        let _ = window.eval(script);
+                    }
+                }
             }
         });
 

@@ -27,7 +27,7 @@ Use this when Instagram changes its layout and the selectors in
    size that looks good in the landing page. The capture keeps the window's
    native size; a web content area around **1100×700 points** works well.
 3. Choose **Developer → Copy DOM Skeleton**.
-4. Click **Download JSON** (recommended) or **Copy JSON**.
+4. Click **Copy JSON**.
 
 The JSON contains tags, roles, class names, positions, sizes, text lengths,
 font weights/sizes, and background kinds. It contains **no** visible text,

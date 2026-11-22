@@ -113,29 +113,11 @@
         if (fallbackCopy(json)) {
           markCopied();
         } else {
-          copy.textContent = "Copy failed — use Download JSON";
+          copy.textContent = "Copy failed — select the JSON below";
         }
       });
   };
   actions.appendChild(copy);
-
-  var download = document.createElement("button");
-  download.textContent = "Download JSON";
-  download.style.cssText = buttonStyle;
-  download.onclick = function () {
-    var blob = new Blob([json], { type: "application/json" });
-    var url = URL.createObjectURL(blob);
-    var link = document.createElement("a");
-    link.href = url;
-    link.download = "onlydm-dom-skeleton.json";
-    document.documentElement.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(function () {
-      URL.revokeObjectURL(url);
-    }, 1000);
-  };
-  actions.appendChild(download);
 
   var close = document.createElement("button");
   close.textContent = "Close";

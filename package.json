@@ -11,7 +11,8 @@
     "version:check": "node scripts/set-version.mjs --check",
     "release": "node scripts/release.mjs",
     "assets:icons": "python3 scripts/generate-icons.py",
-    "assets:og": "python3 scripts/generate-og.py"
+    "assets:og": "python3 scripts/generate-og.py",
+    "screenshot": "python3 scripts/capture-screenshot.py"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"

@@ -803,7 +803,6 @@
     footer {
       border-top: 1px solid var(--border);
       padding: 60px 0 40px;
-      padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
       background: #06070a;
       color: var(--text-dim);
       font-size: 0.875rem;
@@ -847,22 +846,8 @@
       color: #fff;
     }
 
-    .footer-utility {
-      display: flex;
-      justify-content: flex-end;
-      margin-bottom: 16px;
-    }
-
-    .to-top-link {
-      color: var(--text-muted);
-      text-decoration: underline;
-      text-underline-offset: 3px;
+    .back-to-top {
       font-weight: 600;
-      transition: color 0.2s ease;
-    }
-
-    .to-top-link:hover {
-      color: #fff;
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1081,7 +1066,6 @@
       /* Footer */
       footer {
         padding: 40px 0 28px;
-        padding-bottom: max(72px, calc(28px + env(safe-area-inset-bottom, 0px)));
       }
       .footer-top {
         flex-direction: column;
@@ -1092,16 +1076,11 @@
       .footer-links {
         gap: 16px;
       }
-      .footer-utility {
-        justify-content: flex-start;
-        margin-bottom: 8px;
-      }
-      .to-top-link {
-        display: inline-flex;
+      .footer-bottom {
+        flex-direction: row;
         align-items: center;
-        min-height: 44px;
-        color: var(--text);
-        font-size: 0.95rem;
+        justify-content: space-between;
+        gap: 16px;
       }
     }
 
@@ -1622,12 +1601,9 @@
         <strong>Disclaimer:</strong> OnlyDM is an independent open-source client and is not affiliated, associated, authorized, endorsed by, or in any way officially connected with Instagram, Meta Platforms, Inc., or any of their subsidiaries or affiliates. All product names, logos, and brands are property of their respective owners.
       </div>
 
-      <div class="footer-utility">
-        <a href="#top" class="to-top-link">Back to top <span aria-hidden="true">↑</span></a>
-      </div>
-
       <div class="footer-bottom">
         <div>© 2026 <a href="https://pw486.github.io/" target="_blank" rel="noopener noreferrer">PW486</a></div>
+        <div><a href="#top" class="back-to-top">Back to top ↑</a></div>
       </div>
     </div>
   </footer>

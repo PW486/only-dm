@@ -79,8 +79,8 @@ PILL_DOT_GAP = 14
 # --- colors --------------------------------------------------------------
 BACKGROUND_DIM = 0.10
 BACKGROUND_DIM_COLOR = (9, 7, 15)
-TITLE_FILL = (243, 244, 246, 215)
-SUBTITLE_FILL = (215, 221, 231, 215)
+TITLE_FILL = (243, 244, 246, 255)
+SUBTITLE_FILL = (215, 221, 231, 255)
 PILL_FILL = (23, 22, 28, 115)
 PILL_BORDER = (255, 255, 255, 45)
 PILL_TEXT_FILL = (218, 222, 228, 255)

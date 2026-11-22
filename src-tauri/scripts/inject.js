@@ -484,6 +484,21 @@
       pointer-events: none !important;
     }
 
+    /* The rules above also disabled the conversation row's "More options" (⋯)
+       button, because it is nested inside the row. Keep icon/menu action
+       buttons interactive so their dropdown can open, while the avatar/story
+       ring (img/canvas) remains click-through to the row. */
+    [data-ig-dm-thread-row="true"] :is([role="button"], button)[aria-haspopup],
+    [data-ig-dm-thread-row="true"] :is([role="button"], button)[aria-haspopup] *,
+    [data-ig-dm-thread-row="true"] :is([role="button"], button):has(svg):not(:has(img, canvas)),
+    [data-ig-dm-thread-row="true"] :is([role="button"], button):has(svg):not(:has(img, canvas)) *,
+    main[role="main"] div[role="navigation"] [role="button"] :is([role="button"], button)[aria-haspopup],
+    main[role="main"] div[role="navigation"] [role="button"] :is([role="button"], button)[aria-haspopup] *,
+    main[role="main"] div[role="navigation"] [role="button"] :is([role="button"], button):has(svg):not(:has(img, canvas)),
+    main[role="main"] div[role="navigation"] [role="button"] :is([role="button"], button):has(svg):not(:has(img, canvas)) * {
+      pointer-events: auto !important;
+    }
+
     /* Stack avatar and partner name vertically when in narrow (< 900px) compact mode */
     [data-ig-dm-thread-row="true"][data-ig-dm-compact="true"] {
       display: flex !important;

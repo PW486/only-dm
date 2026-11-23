@@ -19,3 +19,39 @@ tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 url = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSApplication",
+    "NSAttributedString",
+    "NSBitmapImageRep",
+    "NSButton",
+    "NSButtonCell",
+    "NSCell",
+    "NSColor",
+    "NSControl",
+    "NSCursor",
+    "NSFont",
+    "NSImage",
+    "NSImageRep",
+    "NSResponder",
+    "NSText",
+    "NSTextAttachment",
+    "NSTextField",
+    "NSTextView",
+    "NSView",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSAttributedString",
+    "NSData",
+    "NSDictionary",
+    "NSObject",
+    "NSRange",
+    "NSString",
+    "NSURL",
+    "objc2-core-foundation",
+] }

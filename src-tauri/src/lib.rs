@@ -460,7 +460,7 @@ fn style_about_panel(
     if let Some(text_field) = view.downcast_ref::<NSTextField>() {
         if text_field.stringValue().to_string().contains(APP_VERSION) {
             text_field.setFont(Some(&NSFont::systemFontOfSize(ABOUT_VERSION_FONT_SIZE)));
-            objc2_app_kit::NSView::setNeedsDisplay(&text_field, true);
+            objc2_app_kit::NSView::setNeedsDisplay(text_field, true);
             changed = true;
         }
     }

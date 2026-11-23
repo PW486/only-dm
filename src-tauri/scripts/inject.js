@@ -48,6 +48,7 @@
   const ACCOUNT_LOCK_ATTR = "data-ig-dm-account-locked";
   const NOTES_TRAY_ATTR = "data-ig-dm-notes-tray";
   const REPLACED_BACK_ATTR = "data-ig-dm-replaced-back";
+  const DOCUMENT_SCROLL_LOCK_ATTR = "data-ig-dm-scroll-locked";
 
   // Localized labels for the "Your note" bubble that sits at the start of the
   // Notes tray in the DM inbox. Instagram generates obfuscated class names on
@@ -384,6 +385,17 @@
       -ms-overflow-style: none !important;
     }
 
+    /* Older WebKit builds (macOS 11-14) ignore the scrollbar-width property,
+       and macOS users who choose "Show scroll bars: Always" get
+       layout-consuming scrollbars. Hide WebKit scrollbars as well so one
+       appearing mid-scroll never changes the content width or shifts the DM
+       layout. */
+    ::-webkit-scrollbar {
+      width: 0px !important;
+      height: 0px !important;
+      display: none !important;
+    }
+
     [data-ig-dm-hidden-nav="true"],
     nav[role="navigation"]:not(main[role="main"] *),
     footer[role="contentinfo"],
@@ -433,12 +445,53 @@
 
     html,
     body {
-      width: 100vw !important;
-      max-width: 100vw !important;
+      /* The 100vw unit includes the vertical scrollbar width, so it can itself
+         introduce horizontal overflow. 100% is relative to the viewport minus
+         any scrollbar and keeps the shell flush with the window. */
+      width: 100% !important;
+      max-width: 100% !important;
       height: 100vh !important;
       margin: 0px !important;
       padding: 0px !important;
       overflow-x: hidden !important;
+    }
+
+    /* The DM app is a single-screen shell with its own inner scrollers. Once
+       the shell is mounted, lock the document scroller so momentum at the end
+       of a thread list or message history cannot chain to <body>. Without
+       this the whole UI can drift upward and a page scrollbar appears.
+       Login and standalone post pages keep normal document scrolling. */
+    html[${DOCUMENT_SCROLL_LOCK_ATTR}="true"] {
+      height: 100vh !important;
+      max-height: 100vh !important;
+      overflow: hidden !important;
+      /* Newer WebKit: clip makes the root a non-scroll container entirely, so
+         even focus/scrollIntoView cannot offset the whole page. Older WebKit
+         ignores this and keeps the hidden fallback above. */
+      overflow: clip !important;
+      overscroll-behavior: none !important;
+    }
+
+    /* Fixing <body> to the viewport removes its overflow from the document
+       scroll range, which also defeats programmatic scrollIntoView offsets. */
+    html[${DOCUMENT_SCROLL_LOCK_ATTR}="true"] body {
+      position: fixed !important;
+      top: 0px !important;
+      right: 0px !important;
+      bottom: 0px !important;
+      left: 0px !important;
+      width: 100% !important;
+      height: 100vh !important;
+      max-height: 100vh !important;
+      margin: 0px !important;
+      padding: 0px !important;
+      overflow: hidden !important;
+      overflow: clip !important;
+      overscroll-behavior: none !important;
+    }
+
+    html[${DOCUMENT_SCROLL_LOCK_ATTR}="true"] * {
+      overscroll-behavior: contain !important;
     }
 
     [data-ig-dm-main-ancestor="true"],
@@ -452,7 +505,7 @@
       left: 0px !important;
       inset-inline-start: 0px !important;
       width: 100% !important;
-      max-width: 100vw !important;
+      max-width: 100% !important;
       box-sizing: border-box !important;
     }
 
@@ -460,7 +513,7 @@
       flex: 1 1 auto !important;
       width: 100% !important;
       min-width: 0px !important;
-      max-width: 100vw !important;
+      max-width: 100% !important;
       height: 100vh !important;
       margin: 0px !important;
       padding: 0px !important;
@@ -1871,7 +1924,7 @@
         curr.style.setProperty("left", "0px", "important");
         curr.style.setProperty("inset-inline-start", "0px", "important");
         curr.style.setProperty("width", "100%", "important");
-        curr.style.setProperty("max-width", "100vw", "important");
+        curr.style.setProperty("max-width", "100%", "important");
       } else {
         curr.style.setProperty("margin-left", "0px", "important");
         curr.style.setProperty("padding-left", "0px", "important");
@@ -2162,11 +2215,112 @@
     }
   }
 
+  /**
+   * Returns true when the current page is the single-screen DM shell. Login
+   * and standalone post pages keep normal document scrolling, while the DM
+   * inbox, thread, and requests UI must never scroll the document.
+   */
+  function isDmShellPage() {
+    return (
+      window.location.pathname.startsWith("/direct") &&
+      Boolean(document.querySelector('main[role="main"]'))
+    );
+  }
+
+  /**
+   * Locks or unlocks the document scroller depending on the current page. The
+   * lock itself lives in CSS; this only toggles the marker attribute and clears
+   * any page-level offset picked up before the marker was applied.
+   */
+  function syncDocumentScrollLock() {
+    const root = document.documentElement;
+    if (!root) return;
+
+    if (isDmShellPage()) {
+      if (root.getAttribute(DOCUMENT_SCROLL_LOCK_ATTR) !== "true") {
+        root.setAttribute(DOCUMENT_SCROLL_LOCK_ATTR, "true");
+      }
+      if (window.scrollX !== 0 || window.scrollY !== 0) {
+        window.scrollTo(0, 0);
+      }
+    } else if (root.getAttribute(DOCUMENT_SCROLL_LOCK_ATTR) === "true") {
+      root.removeAttribute(DOCUMENT_SCROLL_LOCK_ATTR);
+    }
+  }
+
+  function isScrollableOverflow(value) {
+    return value === "auto" || value === "scroll" || value === "overlay";
+  }
+
+  /**
+   * True when `el` is a real scroll container that can still move in the
+   * direction of this wheel gesture. Instagram uses such containers for the
+   * thread list, message history, and media carousels; everything above them
+   * is fixed-height chrome.
+   */
+  function canConsumeWheelDelta(el, deltaX, deltaY) {
+    const style = window.getComputedStyle(el);
+
+    if (
+      deltaY !== 0 &&
+      isScrollableOverflow(style.overflowY) &&
+      el.scrollHeight > el.clientHeight + 1
+    ) {
+      const maxScrollTop = el.scrollHeight - el.clientHeight;
+      if (
+        (deltaY < 0 && el.scrollTop > 0) ||
+        (deltaY > 0 && el.scrollTop < maxScrollTop - 1)
+      ) {
+        return true;
+      }
+    }
+
+    if (
+      deltaX !== 0 &&
+      isScrollableOverflow(style.overflowX) &&
+      el.scrollWidth > el.clientWidth + 1
+    ) {
+      const maxScrollLeft = el.scrollWidth - el.clientWidth;
+      if (
+        (deltaX < 0 && el.scrollLeft > 0) ||
+        (deltaX > 0 && el.scrollLeft < maxScrollLeft - 1)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Stops wheel/trackpad momentum from reaching the document when the DM shell
+   * is locked. This is the fallback for macOS WebKit versions that predate
+   * `overscroll-behavior`; it also prevents the page-level rubber band that
+   * makes the whole UI bounce.
+   */
+  function preventDocumentWheelScroll(event) {
+    const root = document.documentElement;
+    if (!root || root.getAttribute(DOCUMENT_SCROLL_LOCK_ATTR) !== "true") {
+      return;
+    }
+
+    let node = event.target instanceof Element ? event.target : null;
+    while (node && node !== document.body && node !== root) {
+      if (canConsumeWheelDelta(node, event.deltaX, event.deltaY)) {
+        return;
+      }
+      node = node.parentElement;
+    }
+
+    event.preventDefault();
+  }
+
   function applyOptimizations() {
     if (window.location.pathname === "/") {
       window.location.replace("https://www.instagram.com/direct/inbox/");
       return;
     }
+    syncDocumentScrollLock();
     injectStyles();
     hideCallAndVoiceButtons();
     hideNotesTray();
@@ -2184,6 +2338,7 @@
   applyOptimizations();
   window.addEventListener("DOMContentLoaded", applyOptimizations, { once: true });
   window.addEventListener("resize", () => {
+    syncDocumentScrollLock();
     hideCallAndVoiceButtons();
     hideNotesTray();
     hideGlobalNavigationAndEliminateBlankSpace();
@@ -2192,6 +2347,33 @@
     lockDmAccountSwitcher();
     enhanceDmConversationList();
   });
+
+  // Safety net for programmatic/document scrolling that bypasses the CSS lock.
+  window.addEventListener(
+    "scroll",
+    () => {
+      const root = document.documentElement;
+      if (!root || root.getAttribute(DOCUMENT_SCROLL_LOCK_ATTR) !== "true") {
+        return;
+      }
+      if (window.scrollX !== 0 || window.scrollY !== 0) {
+        window.scrollTo(0, 0);
+      }
+    },
+    { passive: true }
+  );
+
+  // Must stay non-passive so boundary gestures can be cancelled before WebKit
+  // turns them into document scrolling or elastic overscroll. Modern WebKit
+  // already handles this with `overscroll-behavior` plus the fixed body, so
+  // only install the JS fallback where that CSS property is unavailable.
+  const supportsOverscrollBehavior =
+    typeof CSS !== "undefined" &&
+    typeof CSS.supports === "function" &&
+    CSS.supports("overscroll-behavior", "contain");
+  if (!supportsOverscrollBehavior) {
+    window.addEventListener("wheel", preventDocumentWheelScroll, { passive: false });
+  }
 
   // Batch optimizations with requestAnimationFrame, with a timer fallback so
   // the Requests back button is still restored when frames are paused (e.g.

@@ -1,10 +1,13 @@
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
-    menu::{AboutMetadata, Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem, Submenu},
+    menu::{Menu, MenuItemBuilder, MenuItemKind, PredefinedMenuItem, Submenu},
     webview::{NewWindowResponse, PageLoadEvent},
     AppHandle, Manager, Runtime, WebviewWindowBuilder,
 };
+
+#[cfg(not(target_os = "macos"))]
+use tauri::menu::AboutMetadata;
 
 #[cfg(target_os = "macos")]
 use tauri::{RunEvent, WindowEvent};
@@ -241,6 +244,233 @@ fn open_in_system_browser(app_handle: &AppHandle, target_url: &str) {
     if let Err(err) = app_handle.shell().open(target_url, None) {
         eprintln!("Failed to open external URL '{}': {}", target_url, err);
     }
+}
+
+#[cfg(target_os = "macos")]
+const ABOUT_COPYRIGHT_TEXT: &str = "© 2026 PW486";
+
+#[cfg(target_os = "macos")]
+const ABOUT_VERSION_FONT_SIZE: f64 = 11.0;
+
+/// Shows the standard macOS About panel with attributed credits, so the
+/// copyright and Donate links are clickable while keeping the native panel.
+#[cfg(target_os = "macos")]
+fn show_about_panel(app: &AppHandle) {
+    let bundle_version = app
+        .config()
+        .bundle
+        .macos
+        .bundle_version
+        .clone()
+        .unwrap_or_default();
+
+    if let Err(err) = app.run_on_main_thread(move || {
+        show_about_panel_on_main_thread(&bundle_version);
+    }) {
+        eprintln!("Failed to open About panel: {err}");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn show_about_panel_on_main_thread(bundle_version: &str) {
+    use objc2::{rc::Retained, runtime::AnyObject, AnyThread, MainThreadMarker};
+    use objc2_app_kit::{
+        NSAboutPanelOptionApplicationIcon, NSAboutPanelOptionApplicationName,
+        NSAboutPanelOptionApplicationVersion, NSAboutPanelOptionCredits, NSAboutPanelOptionVersion,
+        NSApplication, NSAttributedStringAttachmentConveniences, NSBezelStyle, NSButton, NSColor,
+        NSControlSize, NSCursor, NSCursorAttributeName, NSFont, NSForegroundColorAttributeName,
+        NSImage, NSLinkAttributeName, NSTextAttachment, NSUnderlineStyleAttributeName,
+    };
+    use objc2_foundation::{
+        NSData, NSDictionary, NSMutableAttributedString, NSNumber, NSPoint, NSRange, NSRect,
+        NSSize, NSString, NSURL,
+    };
+
+    const AUTHOR_URL: &str = "https://pw486.github.io/";
+    const DONATE_URL: &str = "https://ko-fi.com/pw486/tip";
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+
+    // Render a real AppKit push button offscreen. The standard About panel can
+    // only host text/attachments in its credits area, so the donation link is
+    // embedded as a button image that keeps the panel's native look.
+    let donate_image = unsafe {
+        let button = NSButton::buttonWithTitle_target_action(
+            &NSString::from_str("♥ Donate"),
+            None,
+            None,
+            mtm,
+        );
+        button.setBezelStyle(NSBezelStyle::Push);
+        button.setControlSize(NSControlSize::Small);
+        button.setFont(Some(&NSFont::systemFontOfSize(
+            NSFont::smallSystemFontSize(),
+        )));
+        button.sizeToFit();
+
+        let bounds = button.bounds();
+        button
+            .bitmapImageRepForCachingDisplayInRect(bounds)
+            .map(|representation| {
+                button.cacheDisplayInRect_toBitmapImageRep(bounds, &representation);
+                let image = NSImage::initWithSize(NSImage::alloc(), bounds.size);
+                image.addRepresentation(&representation);
+                image
+            })
+    };
+
+    let credits_text = NSString::from_str(&format!("{ABOUT_COPYRIGHT_TEXT}   "));
+    let credits = NSMutableAttributedString::initWithString(
+        NSMutableAttributedString::alloc(),
+        &credits_text,
+    );
+
+    let author_range = credits_text.rangeOfString(&NSString::from_str("PW486"));
+    if author_range.length > 0 {
+        if let Some(url) = NSURL::URLWithString(&NSString::from_str(AUTHOR_URL)) {
+            let value: Retained<AnyObject> = unsafe { Retained::cast_unchecked(url) };
+            unsafe {
+                credits.addAttribute_value_range(NSLinkAttributeName, &value, author_range);
+            }
+        }
+    }
+
+    if let Some(image) = donate_image {
+        let attachment = NSTextAttachment::new();
+        attachment.setImage(Some(&image));
+        let size = image.size();
+        attachment.setBounds(NSRect::new(
+            NSPoint::new(0.0, -6.0),
+            NSSize::new(size.width, size.height),
+        ));
+
+        let donate_range = NSRange::new(credits.length(), 1);
+        let attachment_string =
+            objc2_foundation::NSAttributedString::attributedStringWithAttachment(&attachment);
+        credits.appendAttributedString(&attachment_string);
+
+        if let Some(url) = NSURL::URLWithString(&NSString::from_str(DONATE_URL)) {
+            let value: Retained<AnyObject> = unsafe { Retained::cast_unchecked(url) };
+            unsafe {
+                credits.addAttribute_value_range(NSLinkAttributeName, &value, donate_range);
+            }
+        }
+    }
+
+    // Load the full-size app icon; the default panel icon can be a small
+    // generic placeholder when the app is launched outside its bundle.
+    let icon = NSImage::initWithData(
+        NSImage::alloc(),
+        &NSData::with_bytes(include_bytes!("../icons/icon.png")),
+    );
+
+    let name: Retained<AnyObject> =
+        unsafe { Retained::cast_unchecked(NSString::from_str(APP_DISPLAY_NAME)) };
+    let version: Retained<AnyObject> =
+        unsafe { Retained::cast_unchecked(NSString::from_str(APP_VERSION)) };
+    let attributed_credits: Retained<AnyObject> = unsafe { Retained::cast_unchecked(credits) };
+
+    let mut keys: Vec<&NSString> = unsafe {
+        vec![
+            NSAboutPanelOptionApplicationName,
+            NSAboutPanelOptionApplicationVersion,
+            NSAboutPanelOptionCredits,
+        ]
+    };
+    let mut objects = vec![name, version, attributed_credits];
+
+    // An empty value would suppress the panel's CFBundleVersion fallback, so
+    // only set the build version when the config actually provides one.
+    if !bundle_version.is_empty() {
+        keys.push(unsafe { NSAboutPanelOptionVersion });
+        objects.push(unsafe { Retained::cast_unchecked(NSString::from_str(bundle_version)) });
+    }
+
+    if let Some(icon) = icon {
+        keys.push(unsafe { NSAboutPanelOptionApplicationIcon });
+        objects.push(unsafe { Retained::cast_unchecked(icon) });
+    }
+
+    let options = NSDictionary::from_retained_objects(&keys, &objects);
+
+    let app = NSApplication::sharedApplication(mtm);
+    unsafe {
+        app.orderFrontStandardAboutPanelWithOptions(&options);
+    }
+
+    // The panel colors all links with the system link color by default.
+    // Restyle them to use the label color so PW486 matches the surrounding
+    // text while keeping the underline and pointing-hand cursor.
+    let label: Retained<AnyObject> = unsafe { Retained::cast_unchecked(NSColor::labelColor()) };
+    let underline: Retained<AnyObject> =
+        unsafe { Retained::cast_unchecked(NSNumber::new_usize(1)) };
+    let cursor: Retained<AnyObject> =
+        unsafe { Retained::cast_unchecked(NSCursor::pointingHandCursor()) };
+    let link_keys: [&NSString; 3] = unsafe {
+        [
+            NSForegroundColorAttributeName,
+            NSUnderlineStyleAttributeName,
+            NSCursorAttributeName,
+        ]
+    };
+    let link_attributes =
+        NSDictionary::from_retained_objects(&link_keys, &[label, underline, cursor]);
+
+    let windows = app.windows();
+    for index in 0..windows.count() {
+        let window = windows.objectAtIndex(index);
+        if let Some(content) = window.contentView() {
+            if style_about_panel(&content, &link_attributes) {
+                content.layoutSubtreeIfNeeded();
+                break;
+            }
+        }
+    }
+}
+
+/// Applies the custom link style and version font to the standard About panel.
+#[cfg(target_os = "macos")]
+fn style_about_panel(
+    view: &objc2_app_kit::NSView,
+    link_attributes: &objc2_foundation::NSDictionary<
+        objc2_foundation::NSAttributedStringKey,
+        objc2::runtime::AnyObject,
+    >,
+) -> bool {
+    use objc2_app_kit::{NSFont, NSTextField, NSTextView};
+
+    let mut changed = false;
+
+    if let Some(text_view) = view.downcast_ref::<NSTextView>() {
+        if text_view
+            .string()
+            .to_string()
+            .contains(ABOUT_COPYRIGHT_TEXT)
+        {
+            unsafe {
+                text_view.setLinkTextAttributes(Some(link_attributes));
+            }
+            text_view.setNeedsDisplay(true);
+            changed = true;
+        }
+    }
+
+    if let Some(text_field) = view.downcast_ref::<NSTextField>() {
+        if text_field.stringValue().to_string().contains(APP_VERSION) {
+            text_field.setFont(Some(&NSFont::systemFontOfSize(ABOUT_VERSION_FONT_SIZE)));
+            objc2_app_kit::NSView::setNeedsDisplay(text_field, true);
+            changed = true;
+        }
+    }
+
+    let subviews = view.subviews();
+    for index in 0..subviews.count() {
+        changed |= style_about_panel(&subviews.objectAtIndex(index), link_attributes);
+    }
+
+    changed
 }
 
 /// Clears all browsing data (including HttpOnly session cookies) and redirects to the login page.
@@ -582,21 +812,27 @@ async fn check_for_updates(app: AppHandle, interactive: bool) {
 }
 
 /// Builds the application menu bar with "OnlyDM" as the explicit display name
-/// (including in the "About OnlyDM" dialog) instead of the Cargo package slug.
+/// (including in the "About OnlyDM" panel) instead of the Cargo package slug.
 fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    // `default_window_icon` resolves to the first PNG in `bundle.icon` (32x32), which the
-    // standard About panel would draw at its natural 32pt size. Load the full-size app icon
-    // instead so it fills the panel's 64pt icon slot.
-    let about_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).ok();
-
-    let about_metadata = AboutMetadata {
-        name: Some(APP_DISPLAY_NAME.to_string()),
-        version: Some(APP_VERSION.to_string()),
-        // Build number shown in parentheses: "Version 0.1.0 (1)".
-        short_version: app.config().bundle.macos.bundle_version.clone(),
-        icon: about_icon,
-        ..Default::default()
-    };
+    // macOS needs a custom item so the About panel can receive attributed
+    // credits with clickable links; other platforms keep the predefined panel.
+    #[cfg(target_os = "macos")]
+    let about_item =
+        MenuItemBuilder::with_id("about", format!("About {}", APP_DISPLAY_NAME)).build(app)?;
+    #[cfg(not(target_os = "macos"))]
+    let about_item = PredefinedMenuItem::about(
+        app,
+        Some(&format!("About {}", APP_DISPLAY_NAME)),
+        Some(AboutMetadata {
+            name: Some(APP_DISPLAY_NAME.to_string()),
+            version: Some(APP_VERSION.to_string()),
+            // Build number shown in parentheses: "Version 0.1.0 (1)".
+            short_version: app.config().bundle.macos.bundle_version.clone(),
+            // Use the full-size icon rather than the 32x32 default window icon.
+            icon: tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png")).ok(),
+            ..Default::default()
+        }),
+    )?;
 
     let check_updates_item =
         MenuItemBuilder::with_id("check-updates", "Check for Updates...").build(app)?;
@@ -611,11 +847,7 @@ fn build_app_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         APP_DISPLAY_NAME,
         true,
         &[
-            &PredefinedMenuItem::about(
-                app,
-                Some(&format!("About {}", APP_DISPLAY_NAME)),
-                Some(about_metadata),
-            )?,
+            &about_item,
             &check_updates_item,
             &PredefinedMenuItem::separator(app)?,
             &logout_item,
@@ -690,7 +922,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .menu(build_app_menu)
         .on_menu_event(|app, event| {
-            if event.id() == "logout" {
+            if event.id() == "about" {
+                #[cfg(target_os = "macos")]
+                show_about_panel(app);
+            } else if event.id() == "logout" {
                 request_native_logout(app);
             } else if event.id() == "check-updates" {
                 spawn_update_check(app.clone(), true);

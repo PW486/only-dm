@@ -250,7 +250,7 @@ fn open_in_system_browser(app_handle: &AppHandle, target_url: &str) {
 const ABOUT_COPYRIGHT_TEXT: &str = "© 2026 PW486";
 
 #[cfg(target_os = "macos")]
-const ABOUT_VERSION_FONT_SIZE: f64 = 11.0;
+const ABOUT_TEXT_FONT_SIZE: f64 = 11.0;
 
 /// Shows the standard macOS About panel with attributed credits, so the
 /// copyright and Donate links are clickable while keeping the native panel.
@@ -305,9 +305,7 @@ fn show_about_panel_on_main_thread(bundle_version: &str) {
         );
         button.setBezelStyle(NSBezelStyle::Push);
         button.setControlSize(NSControlSize::Small);
-        button.setFont(Some(&NSFont::systemFontOfSize(
-            NSFont::smallSystemFontSize(),
-        )));
+        button.setFont(Some(&NSFont::systemFontOfSize(ABOUT_TEXT_FONT_SIZE)));
         button.sizeToFit();
 
         let bounds = button.bounds();
@@ -452,6 +450,7 @@ fn style_about_panel(
             unsafe {
                 text_view.setLinkTextAttributes(Some(link_attributes));
             }
+            text_view.setFont(Some(&NSFont::systemFontOfSize(ABOUT_TEXT_FONT_SIZE)));
             text_view.setNeedsDisplay(true);
             changed = true;
         }
@@ -459,7 +458,7 @@ fn style_about_panel(
 
     if let Some(text_field) = view.downcast_ref::<NSTextField>() {
         if text_field.stringValue().to_string().contains(APP_VERSION) {
-            text_field.setFont(Some(&NSFont::systemFontOfSize(ABOUT_VERSION_FONT_SIZE)));
+            text_field.setFont(Some(&NSFont::systemFontOfSize(ABOUT_TEXT_FONT_SIZE)));
             objc2_app_kit::NSView::setNeedsDisplay(text_field, true);
             changed = true;
         }

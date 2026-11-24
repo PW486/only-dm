@@ -278,6 +278,75 @@
   );
   BACK_LABELS.add("back");
 
+  // Instagram uses region-specific tags that do not share a base language with
+  // the translation bundles above (e.g. `zh-hant` is Traditional Chinese, not
+  // Simplified `zh`). Resolve those aliases before the generic base-language
+  // fallback.
+  const LANGUAGE_ALIASES = {
+    "zh-hant": "zh-tw",
+    "zh-hant-tw": "zh-tw",
+    "zh-hant-hk": "zh-hk",
+    "zh-hans": "zh",
+    "zh-hans-cn": "zh",
+  };
+
+  // Instagram ships the same SVG geometry for every locale, so a stable
+  // fragment of `path[d]` identifies a control without depending on any
+  // translated aria-label. These signatures come from Instagram's own icon
+  // components:
+  //   compose        IGDSComposePanoOutlineIcon
+  //   audioCall      IGDSCallPanoOutline24Icon
+  //   videoCall      IGDSVideoChatPanoOutlineIcon
+  //   voiceClip      IGDSMicrophonePanoOutline24Icon
+  //   back           IGDSArrowLeftOutline24Svg
+  //   accountChevron IGDSChevronUpOutlineIcon
+  // Keep each value limited to the distinctive opening coordinates so small
+  // path tweaks elsewhere in the icon do not break detection.
+  const ICON_PATH_SIGNATURES = {
+    compose: "M12.202 3.203",
+    audioCall: "M18.227 22.912",
+    videoCall: "17.999 9.146",
+    voiceClip: "M19.5 10.671",
+    back: "M22 11H4.414",
+    accountChevron: "M21 17.502",
+  };
+
+  /**
+   * Returns a selector for the `<path>` nodes carrying the named icon. This
+   * deliberately has no `:has()` so it also works in older WKWebView versions
+   * (macOS 11/12) where `:has()` is unavailable in `querySelector`.
+   */
+  function iconPathMatch(name) {
+    const signature = ICON_PATH_SIGNATURES[name];
+    return signature ? `path[d*="${signature}"]` : "";
+  }
+
+  /**
+   * Returns true when an SVG contains the named icon signature. Using
+   * `path[d]` rather than aria-label keeps this independent of the UI language.
+   */
+  function svgHasIconPath(svg, name) {
+    const signature = ICON_PATH_SIGNATURES[name];
+    if (!signature || !svg || typeof svg.querySelectorAll !== "function") {
+      return false;
+    }
+    const paths = svg.querySelectorAll("path[d]");
+    for (let i = 0; i < paths.length; i++) {
+      const d = paths[i].getAttribute("d");
+      if (d && d.indexOf(signature) !== -1) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Returns the interactive element that owns an icon SVG.
+   */
+  function iconOwner(svg) {
+    return (
+      (svg.closest && svg.closest('button, [role="button"], a')) || svg
+    );
+  }
+
   // Visible "Message requests" / "Hidden requests" header titles. Instagram
   // generates obfuscated class names on every build, so the header is located
   // by visible text and layout structure instead of class names.
@@ -305,6 +374,11 @@
 
     if (LOGOUT_I18N[rawLang] || BACK_I18N[rawLang]) {
       return rawLang;
+    }
+
+    const alias = LANGUAGE_ALIASES[rawLang];
+    if (alias && (LOGOUT_I18N[alias] || BACK_I18N[alias])) {
+      return alias;
     }
 
     const baseLang = rawLang.split("-")[0];
@@ -345,27 +419,158 @@
     'a[href*="threads.com"]',
   ].join(", ");
 
-  // Selectors for Audio Call, Video Call, and Voice Clip / Voice Message icons to hide
-  const CALL_AND_VOICE_ICON_SELECTORS = [
-    'svg[aria-label="Audio call"]',
-    'svg[aria-label="Audio Call"]',
-    'svg[aria-label="음성 통화"]',
-    'svg[aria-label="음성통화"]',
-    'svg[aria-label="音声通話"]',
-    'svg[aria-label="Video call"]',
-    'svg[aria-label="Video Call"]',
-    'svg[aria-label="영상 통화"]',
-    'svg[aria-label="영상통화"]',
-    'svg[aria-label="ビデオ通話"]',
-    'svg[aria-label="Voice Clip"]',
-    'svg[aria-label="Voice clip"]',
-    'svg[aria-label="Voice message"]',
-    'svg[aria-label="음성 클립"]',
-    'svg[aria-label="음성클립"]',
-    'svg[aria-label="음성 메시지"]',
-    'svg[aria-label="음성메시지"]',
-    'svg[aria-label="ボイスクリップ"]',
-  ].join(", ");
+  // Localized labels are only a fallback for when Instagram changes icon
+  // geometry. Primary detection uses ICON_PATH_SIGNATURES above, which works
+  // for every locale.
+  const CALL_AND_VOICE_LABELS = new Set([
+    // English
+    "audio call",
+    "voice call",
+    "video call",
+    "voice clip",
+    "voice message",
+    // Korean
+    "음성 통화",
+    "음성통화",
+    "영상 통화",
+    "영상통화",
+    "음성 클립",
+    "음성클립",
+    "음성 메시지",
+    "음성메시지",
+    // Japanese
+    "音声通話",
+    "ビデオ通話",
+    "ボイスクリップ",
+    "音声クリップ",
+    // Simplified Chinese
+    "语音通话",
+    "视频通话",
+    "语音片段",
+    "语音消息",
+    // Traditional Chinese
+    "語音通話",
+    "視訊通話",
+    "語音片段",
+    "語音訊息",
+    // Spanish
+    "llamada de audio",
+    "llamada de voz",
+    "videollamada",
+    "clip de voz",
+    "mensaje de voz",
+    // French
+    "appel audio",
+    "appel vocal",
+    "appel vidéo",
+    "clip vocal",
+    "message vocal",
+    // German
+    "sprachanruf",
+    "videoanruf",
+    "sprachclip",
+    "sprachnachricht",
+    // Portuguese
+    "ligação de áudio",
+    "chamada de áudio",
+    "ligação de vídeo",
+    "chamada de vídeo",
+    "clipe de voz",
+    "mensagem de voz",
+    // Italian
+    "chiamata audio",
+    "chiamata vocale",
+    "videochiamata",
+    "clip vocale",
+    "messaggio vocale",
+    // Russian
+    "аудиозвонок",
+    "голосовой звонок",
+    "видеозвонок",
+    "голосовой клип",
+    "голосовое сообщение",
+    // Vietnamese
+    "gọi thoại",
+    "gọi video",
+    "đoạn clip thoại",
+    "tin nhắn thoại",
+    // Thai
+    "โทรด้วยเสียง",
+    "โทรวิดีโอ",
+    "คลิปเสียง",
+    "ข้อความเสียง",
+    // Indonesian
+    "panggilan audio",
+    "panggilan suara",
+    "panggilan video",
+    "klip suara",
+    "pesan suara",
+    // Turkish
+    "sesli arama",
+    "görüntülü arama",
+    "sesli klip",
+    "sesli mesaj",
+  ]);
+
+  // Path-only selector used by the JS fallback. It has no `:has()` so it also
+  // works in older WKWebView versions (macOS 11/12).
+  const CALL_AND_VOICE_PATH_SELECTORS = [
+    "audioCall",
+    "videoCall",
+    "voiceClip",
+  ]
+    .map(iconPathMatch)
+    .join(", ");
+
+  function normalizeAriaLabel(value) {
+    return (value || "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  /**
+   * Builds direct button selectors (no nested `:has()`) for the CSS rule.
+   * CSS `:has()` cannot be nested, so these target `path[d]` directly instead
+   * of wrapping a second `:has()` around the SVG.
+   */
+  function iconControlSelector(iconSelector) {
+    // Conversation rows may show a call icon in the message preview. Never
+    // hide the row itself; only the standalone control that owns the icon.
+    const notThreadRow =
+      ':not(:has(abbr, time, a[href^="/direct/t/"]))';
+    return [
+      `button${notThreadRow}:has(${iconSelector})`,
+      `[role="button"]${notThreadRow}:not(:has([role="button"])):has(${iconSelector})`,
+      `a[role="button"]${notThreadRow}:has(${iconSelector})`,
+    ].join(", ");
+  }
+
+  const CALL_AND_VOICE_BUTTON_SELECTORS = [
+    "audioCall",
+    "videoCall",
+    "voiceClip",
+  ]
+    .map((name) => iconControlSelector(iconPathMatch(name)))
+    .join(", ");
+
+  // Localized labels for the DM inbox "New message" control. The compose icon
+  // path remains the primary signal, so these only matter during icon changes.
+  const COMPOSE_ARIA_LABELS = [
+    'svg[aria-label="New message"]',
+    'svg[aria-label="New Message"]',
+    'svg[aria-label="새로운 메시지"]',
+    'svg[aria-label="新規メッセージ"]',
+    'svg[aria-label="新消息"]',
+    'svg[aria-label="新訊息"]',
+    'svg[aria-label="Nuevo mensaje"]',
+    'svg[aria-label="Nouveau message"]',
+    'svg[aria-label="Neue Nachricht"]',
+    'svg[aria-label="Nova mensagem"]',
+    'svg[aria-label="Nuovo messaggio"]',
+    'svg[aria-label="Новое сообщение"]',
+    'svg[aria-label="Tin nhắn mới"]',
+    'svg[aria-label="ข้อความใหม่"]',
+    'svg[aria-label="Pesan baru"]',
+    'svg[aria-label="Yeni mesaj"]',
+  ];
 
   const CUSTOM_CSS = `
     /* ==========================================================================
@@ -403,9 +608,21 @@
       pointer-events: none !important;
     }
 
-    /* Hide Audio Call, Video Call, and Voice Message buttons */
-    [role="button"]:not(:has([role="button"])):has(${CALL_AND_VOICE_ICON_SELECTORS}),
-    button:has(${CALL_AND_VOICE_ICON_SELECTORS}),
+    /* Hide Audio Call, Video Call, and Voice Message buttons. The first rule
+       is a fast path based on icon geometry; the second is the JS fallback and
+       stays valid on WebKit versions without :has() support. */
+    ${CALL_AND_VOICE_BUTTON_SELECTORS} {
+      display: none !important;
+      width: 0px !important;
+      min-width: 0px !important;
+      max-width: 0px !important;
+      height: 0px !important;
+      margin: 0px !important;
+      padding: 0px !important;
+      overflow: hidden !important;
+      pointer-events: none !important;
+    }
+
     [data-ig-dm-hidden-feature="true"] {
       display: none !important;
       width: 0px !important;
@@ -875,40 +1092,43 @@
    * Finds the "New message" compose button in the DM left panel header across all languages.
    */
   function findComposeButton() {
-    // 1. Try common localized aria-labels
-    const byLabel = document.querySelector(
-      [
-        'svg[aria-label="New message"]',
-        'svg[aria-label="새로운 메시지"]',
-        'svg[aria-label="新規メッセージ"]',
-        'svg[aria-label="新消息"]',
-        'svg[aria-label="新訊息"]',
-        'svg[aria-label="Nuevo mensaje"]',
-        'svg[aria-label="Nouveau message"]',
-        'svg[aria-label="Neue Nachricht"]',
-        'svg[aria-label="Nova mensagem"]',
-      ].join(", ")
-    );
-    if (byLabel) {
-      return byLabel.closest('[role="button"], button, a');
-    }
-
-    // 2. Language-independent fallback: find the compose SVG icon in the top-left DM header
+    // 1. Primary: the pencil-in-square compose icon. Its path is identical in
+    // every Instagram locale, unlike the aria-label. Search the DM left rail
+    // first so a compose icon from an unrelated dialog is never preferred.
     const mainEl = document.querySelector('main[role="main"]');
-    if (!mainEl) return null;
-    const dmNav = mainEl.querySelector('div[role="navigation"]') || mainEl;
-    const svgs = dmNav.querySelectorAll("svg");
-    for (let i = 0; i < svgs.length; i++) {
-      const svg = svgs[i];
-      const rect = svg.getBoundingClientRect();
-      if (rect.top >= 8 && rect.top <= 75 && rect.left >= 60 && rect.left <= 420) {
-        const path = svg.querySelector('path[d^="M12.202"], path[d*="M16.792"]');
-        if (path) {
-          return svg.closest('[role="button"], button, a');
-        }
+    const dmNav = mainEl
+      ? mainEl.querySelector('div[role="navigation"]') || mainEl
+      : null;
+    const composePaths = iconPathMatch("compose");
+
+    const findComposeSvg = (root, requireHeaderPosition) => {
+      if (!root) return null;
+      const paths = root.querySelectorAll(composePaths);
+      for (let i = 0; i < paths.length; i++) {
+        const svg = paths[i].closest("svg");
+        if (!svg) continue;
+
+        const rect = svg.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        if (requireHeaderPosition && (rect.top < 0 || rect.top > 110)) continue;
+        return svg;
       }
-    }
-    return null;
+      return null;
+    };
+
+    const headerSvg = findComposeSvg(dmNav, true);
+    if (headerSvg) return iconOwner(headerSvg);
+
+    // 2. The rail structure may differ in narrow layouts; accept any visible
+    // compose icon before falling back to translated labels.
+    const anySvg = findComposeSvg(document, false);
+    if (anySvg) return iconOwner(anySvg);
+
+    // 3. Last resort: localized aria-labels.
+    const byLabel = document.querySelector(COMPOSE_ARIA_LABELS.join(", "));
+    return byLabel
+      ? byLabel.closest('[role="button"], button, a')
+      : null;
   }
 
   /**
@@ -995,12 +1215,18 @@
 
   /**
    * Returns true when a button carries Instagram's "Back" (arrow-left) icon.
-   * The label may be localized, so match common translations in addition to
-   * the English source label.
+   * The icon geometry is checked first so this works for every locale; the
+   * localized label is only a fallback for icon changes.
    */
   function isNativeBackButton(el) {
     if (!el || el.id === BACK_BTN_ID || el.id === LOGOUT_BTN_ID) return false;
     if (el.querySelector("img, canvas")) return false;
+
+    const svgs = el.querySelectorAll("svg");
+
+    for (let i = 0; i < svgs.length; i++) {
+      if (svgHasIconPath(svgs[i], "back")) return true;
+    }
 
     const btnLabel = (
       el.getAttribute("aria-label") || el.getAttribute("title") || ""
@@ -1009,7 +1235,6 @@
       .toLowerCase();
     if (BACK_LABELS.has(btnLabel)) return true;
 
-    const svgs = el.querySelectorAll("svg");
     if (svgs.length === 0) return false;
 
     for (let i = 0; i < svgs.length; i++) {
@@ -1269,10 +1494,12 @@
 
   /**
    * Returns true when an SVG is Instagram's small "down chevron" icon used by
-   * the DM account switcher. Its label may be localized, so match common
-   * translations in addition to the English aria-label/title.
+   * the DM account switcher. The path signature is language-independent; the
+   * translated label check remains as a fallback.
    */
   function isDownChevronIcon(svg) {
+    if (svgHasIconPath(svg, "accountChevron")) return true;
+
     const titleEl = svg.querySelector("title");
     const label = [
       svg.getAttribute("aria-label"),
@@ -1504,24 +1731,38 @@
    * Hides Audio Call, Video Call, and Voice Clip / Voice Message buttons in DOM.
    */
   function hideCallAndVoiceButtons() {
-    const icons = document.querySelectorAll(CALL_AND_VOICE_ICON_SELECTORS);
-    for (let i = 0; i < icons.length; i++) {
-      const icon = icons[i];
-      const btn = icon.closest('[role="button"], button');
-      if (btn && !btn.getAttribute("data-ig-dm-thread-row")) {
-        btn.setAttribute("data-ig-dm-hidden-feature", "true");
-      } else {
-        icon.setAttribute("data-ig-dm-hidden-feature", "true");
+    const hideSvg = (svg) => {
+      if (!svg) return;
+      const target = svg.closest('[role="button"], button, a') || svg;
+      if (target.closest('[data-ig-dm-thread-row="true"]')) return;
+      // Conversation rows can show a call icon in their message preview.
+      // Their timestamp/link marks them before JS gets a chance to tag them.
+      if (
+        target.querySelector &&
+        target.querySelector('abbr, time, a[href^="/direct/t/"]')
+      ) {
+        return;
       }
+      target.setAttribute("data-ig-dm-hidden-feature", "true");
+    };
+
+    // Primary: icon geometry, identical in every locale.
+    const paths = document.querySelectorAll(CALL_AND_VOICE_PATH_SELECTORS);
+    for (let i = 0; i < paths.length; i++) {
+      hideSvg(paths[i].closest("svg"));
+    }
+
+    // Fallback: localized labels, only needed if Instagram changes an icon.
+    const labeledSvgs = document.querySelectorAll("svg[aria-label]");
+    for (let i = 0; i < labeledSvgs.length; i++) {
+      const svg = labeledSvgs[i];
+      const label = normalizeAriaLabel(svg.getAttribute("aria-label"));
+      if (CALL_AND_VOICE_LABELS.has(label)) hideSvg(svg);
     }
   }
 
   function normalizeNoteLabel(value) {
-    return (value || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .toLowerCase()
-      .replace(/[.…:]+$/, "");
+    return normalizeAriaLabel(value).replace(/[.…:]+$/, "");
   }
 
   /**
@@ -1560,15 +1801,8 @@
 
     const composeIcon = el.querySelector(
       [
-        'svg[aria-label="New message"]',
-        'svg[aria-label="새로운 메시지"]',
-        'svg[aria-label="新規メッセージ"]',
-        'svg[aria-label="新消息"]',
-        'svg[aria-label="新訊息"]',
-        'svg[aria-label="Nuevo mensaje"]',
-        'svg[aria-label="Nouveau message"]',
-        'svg[aria-label="Neue Nachricht"]',
-        'svg[aria-label="Nova mensagem"]',
+        iconPathMatch("compose"),
+        ...COMPOSE_ARIA_LABELS,
         `#${LOGOUT_BTN_ID}`,
       ].join(", ")
     );

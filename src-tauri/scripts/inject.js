@@ -782,7 +782,7 @@
     }
 
     #${LOGOUT_MODAL_ID} {
-      --ig-dm-logout-surface: 33, 35, 40;
+      --ig-dm-logout-surface: 255, 255, 255;
       --ig-dm-logout-dim: 13, 16, 20;
       position: fixed;
       inset: 0;
@@ -790,9 +790,15 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      /* 70.3% of rgb(13,16,20) over #f5f5f5 composites to rgb(82,84,87). */
+      /* 70.3% of rgb(13,16,20) over white composites to rgb(85,87,90). */
       background-color: rgba(var(--ig-dm-logout-dim), 0.703);
       font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #${LOGOUT_MODAL_ID} {
+        --ig-dm-logout-surface: 33, 35, 40;
+      }
     }
 
     .ig-dm-logout-dialog {

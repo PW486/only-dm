@@ -782,20 +782,21 @@
     }
 
     #${LOGOUT_MODAL_ID} {
+      --ig-dm-logout-surface: 33, 35, 40;
       position: fixed;
       inset: 0;
       z-index: 999999;
       display: flex;
       align-items: center;
       justify-content: center;
-      /* Soft dim without blurring the page behind the confirmation dialog. */
-      background-color: rgba(0, 0, 0, 0.5);
+      /* Soft tinted dim without blurring the page behind the dialog. */
+      background-color: rgba(var(--ig-dm-logout-surface), 0.5);
       font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
     }
 
     .ig-dm-logout-dialog {
       width: 280px;
-      background-color: rgb(var(--ig-elevated-background, 38, 38, 38));
+      background-color: rgb(var(--ig-dm-logout-surface));
       color: rgb(var(--ig-primary-text, 245, 245, 245));
       border-radius: 12px;
       overflow: hidden;

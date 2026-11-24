@@ -1070,7 +1070,8 @@
     cancelBtn.textContent = i18n.cancel;
 
     confirmBtn.addEventListener("click", () => {
-      confirmBtn.textContent = i18n.loggingOut;
+      // Keep the button label unchanged; disabling it is enough to prevent
+      // duplicate logout requests while the redirect is in progress.
       confirmBtn.disabled = true;
       executeLogout();
     });

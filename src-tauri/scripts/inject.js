@@ -788,8 +788,11 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background-color: rgba(0, 0, 0, 0.65);
-      backdrop-filter: blur(2px);
+      /* Match Instagram's blurred modal backdrop (the _aa5t overlay used
+         behind the New message dialog): 80% black with a 10px blur. */
+      background-color: rgba(0, 0, 0, 0.8);
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
       font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
     }
 

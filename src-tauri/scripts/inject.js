@@ -788,11 +788,8 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      /* Match Instagram's blurred modal backdrop (the _aa5t overlay used
-         behind the New message dialog): 80% black with a 10px blur. */
-      background-color: rgba(0, 0, 0, 0.8);
-      -webkit-backdrop-filter: blur(10px);
-      backdrop-filter: blur(10px);
+      /* Soft dim without blurring the page behind the confirmation dialog. */
+      background-color: rgba(0, 0, 0, 0.5);
       font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
     }
 

@@ -218,6 +218,8 @@ Contributions, bug reports, and suggestions are welcome! Feel free to open an [I
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
+Before opening a PR, run `npm test`. It validates the 16-language translation bundles, the language-independent Instagram icon signatures, and the archived icon fixtures used by the selector tests.
+
 ---
 
 ## 📄 License

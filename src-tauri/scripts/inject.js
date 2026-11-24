@@ -783,16 +783,14 @@
 
     #${LOGOUT_MODAL_ID} {
       --ig-dm-logout-surface: 33, 35, 40;
-      /* 50% of this over the black DM background composites to rgb(13,16,20). */
-      --ig-dm-logout-dim: 26, 32, 40;
       position: fixed;
       inset: 0;
       z-index: 999999;
       display: flex;
       align-items: center;
       justify-content: center;
-      /* Soft tinted dim without blurring the page behind the dialog. */
-      background-color: rgba(var(--ig-dm-logout-dim), 0.5);
+      /* 76.9% of the surface color over #f5f5f5 composites to rgb(82,84,87). */
+      background-color: rgba(var(--ig-dm-logout-surface), 0.769);
       font-family: -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif;
     }
 

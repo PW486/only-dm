@@ -764,7 +764,8 @@
       color: rgb(var(--ig-primary-icon, 245, 245, 245));
       cursor: pointer;
       transform-origin: center;
-      transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+      /* Keep the press dim instant, like Instagram's icon buttons. */
+      transition: transform 0.15s ease-out;
       flex-shrink: 0;
     }
 
@@ -776,7 +777,8 @@
     }
 
     #${LOGOUT_BTN_ID}:active {
-      opacity: 0.7;
+      /* Match Instagram's IGDSIconButton press state (xcdnw81:active). */
+      opacity: 0.5;
     }
 
     #${LOGOUT_MODAL_ID} {

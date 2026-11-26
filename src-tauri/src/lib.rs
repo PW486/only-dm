@@ -10,6 +10,12 @@ use tauri::{
 use tauri::menu::AboutMetadata;
 
 #[cfg(target_os = "macos")]
+use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSEvent, NSView, NSWindow};
+#[cfg(target_os = "macos")]
+use objc2_foundation::MainThreadMarker;
+#[cfg(target_os = "macos")]
 use tauri::{RunEvent, WindowEvent};
 use tauri_plugin_dialog::{
     DialogExt, MessageDialogBuilder, MessageDialogButtons, MessageDialogKind,
@@ -271,32 +277,19 @@ fn show_about_panel(app: &AppHandle) {
     }
 }
 
+// The standard About panel only hosts text/attachments in its credits area, so
+// the Donate link is embedded as a bitmap of a real AppKit push button. The
+// bitmap has to be re-rendered when the system appearance changes because
+// AppKit only restyles its own controls, not our cached image.
 #[cfg(target_os = "macos")]
-fn show_about_panel_on_main_thread(bundle_version: &str) {
-    use objc2::{rc::Retained, runtime::AnyObject, AnyThread, MainThreadMarker};
-    use objc2_app_kit::{
-        NSAboutPanelOptionApplicationIcon, NSAboutPanelOptionApplicationName,
-        NSAboutPanelOptionApplicationVersion, NSAboutPanelOptionCredits, NSAboutPanelOptionVersion,
-        NSApplication, NSAttributedStringAttachmentConveniences, NSBezelStyle, NSButton, NSColor,
-        NSControlSize, NSCursor, NSCursorAttributeName, NSFont, NSForegroundColorAttributeName,
-        NSImage, NSLinkAttributeName, NSTextAttachment, NSUnderlineStyleAttributeName,
-    };
-    use objc2_foundation::{
-        NSData, NSDictionary, NSMutableAttributedString, NSNumber, NSPoint, NSRange, NSRect,
-        NSSize, NSString, NSURL,
-    };
+fn about_donate_image(
+    mtm: MainThreadMarker,
+) -> Option<objc2::rc::Retained<objc2_app_kit::NSImage>> {
+    use objc2::AnyThread;
+    use objc2_app_kit::{NSBezelStyle, NSButton, NSControlSize, NSFont, NSImage};
+    use objc2_foundation::NSString;
 
-    const AUTHOR_URL: &str = "https://pw486.github.io/";
-    const DONATE_URL: &str = "https://ko-fi.com/pw486/tip";
-
-    let Some(mtm) = MainThreadMarker::new() else {
-        return;
-    };
-
-    // Render a real AppKit push button offscreen. The standard About panel can
-    // only host text/attachments in its credits area, so the donation link is
-    // embedded as a button image that keeps the panel's native look.
-    let donate_image = unsafe {
+    unsafe {
         let button = NSButton::buttonWithTitle_target_action(
             &NSString::from_str("♥ Donate"),
             None,
@@ -317,13 +310,71 @@ fn show_about_panel_on_main_thread(bundle_version: &str) {
                 image.addRepresentation(&representation);
                 image
             })
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn about_link_attributes() -> objc2::rc::Retained<
+    objc2_foundation::NSDictionary<
+        objc2_foundation::NSAttributedStringKey,
+        objc2::runtime::AnyObject,
+    >,
+> {
+    use objc2::{rc::Retained, runtime::AnyObject};
+    use objc2_app_kit::{
+        NSColor, NSCursor, NSCursorAttributeName, NSForegroundColorAttributeName,
+        NSUnderlineStyleAttributeName,
     };
+    use objc2_foundation::{NSDictionary, NSNumber, NSString};
+
+    let label: Retained<AnyObject> = unsafe { Retained::cast_unchecked(NSColor::labelColor()) };
+    let underline: Retained<AnyObject> =
+        unsafe { Retained::cast_unchecked(NSNumber::new_usize(1)) };
+    let cursor: Retained<AnyObject> =
+        unsafe { Retained::cast_unchecked(NSCursor::pointingHandCursor()) };
+    let link_keys: [&NSString; 3] = unsafe {
+        [
+            NSForegroundColorAttributeName,
+            NSUnderlineStyleAttributeName,
+            NSCursorAttributeName,
+        ]
+    };
+
+    NSDictionary::from_retained_objects(&link_keys, &[label, underline, cursor])
+}
+
+#[cfg(target_os = "macos")]
+fn build_about_credits(
+    mtm: MainThreadMarker,
+) -> objc2::rc::Retained<objc2_foundation::NSMutableAttributedString> {
+    use objc2::{rc::Retained, runtime::AnyObject, AnyThread};
+    use objc2_app_kit::{
+        NSAttributedStringAttachmentConveniences, NSColor, NSFont, NSFontAttributeName,
+        NSForegroundColorAttributeName, NSLinkAttributeName, NSTextAttachment,
+    };
+    use objc2_foundation::{
+        NSAttributedString, NSMutableAttributedString, NSPoint, NSRange, NSRect, NSSize, NSString,
+        NSURL,
+    };
+
+    const AUTHOR_URL: &str = "https://pw486.github.io/";
+    const DONATE_URL: &str = "https://ko-fi.com/pw486/tip";
 
     let credits_text = NSString::from_str(&format!("{ABOUT_COPYRIGHT_TEXT}   "));
     let credits = NSMutableAttributedString::initWithString(
         NSMutableAttributedString::alloc(),
         &credits_text,
     );
+
+    // Use semantic colors so the text follows a live light/dark switch.
+    let font: Retained<AnyObject> =
+        unsafe { Retained::cast_unchecked(NSFont::systemFontOfSize(ABOUT_TEXT_FONT_SIZE)) };
+    let label: Retained<AnyObject> = unsafe { Retained::cast_unchecked(NSColor::labelColor()) };
+    let text_range = NSRange::new(0, credits.length());
+    unsafe {
+        credits.addAttribute_value_range(NSFontAttributeName, &font, text_range);
+        credits.addAttribute_value_range(NSForegroundColorAttributeName, &label, text_range);
+    }
 
     let author_range = credits_text.rangeOfString(&NSString::from_str("PW486"));
     if author_range.length > 0 {
@@ -335,7 +386,7 @@ fn show_about_panel_on_main_thread(bundle_version: &str) {
         }
     }
 
-    if let Some(image) = donate_image {
+    if let Some(image) = about_donate_image(mtm) {
         let attachment = NSTextAttachment::new();
         attachment.setImage(Some(&image));
         let size = image.size();
@@ -345,8 +396,7 @@ fn show_about_panel_on_main_thread(bundle_version: &str) {
         ));
 
         let donate_range = NSRange::new(credits.length(), 1);
-        let attachment_string =
-            objc2_foundation::NSAttributedString::attributedStringWithAttachment(&attachment);
+        let attachment_string = NSAttributedString::attributedStringWithAttachment(&attachment);
         credits.appendAttributedString(&attachment_string);
 
         if let Some(url) = NSURL::URLWithString(&NSString::from_str(DONATE_URL)) {
@@ -356,6 +406,143 @@ fn show_about_panel_on_main_thread(bundle_version: &str) {
             }
         }
     }
+
+    credits
+}
+
+/// Refreshes the custom credits of an open About panel. Both the copyright
+/// color and the Donate button image are appearance-dependent and would keep
+/// the theme they were first rendered with otherwise.
+#[cfg(target_os = "macos")]
+fn refresh_open_about_panel() {
+    use objc2_app_kit::NSApplication;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+
+    let app = NSApplication::sharedApplication(mtm);
+    let windows = app.windows();
+
+    for index in 0..windows.count() {
+        let window = windows.objectAtIndex(index);
+        let Some(content) = window.contentView() else {
+            continue;
+        };
+
+        if !replace_about_credits(&content, mtm) {
+            continue;
+        }
+
+        let link_attributes = about_link_attributes();
+        style_about_panel(&content, &link_attributes);
+        content.layoutSubtreeIfNeeded();
+        break;
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn replace_about_credits(view: &NSView, mtm: MainThreadMarker) -> bool {
+    use objc2_app_kit::NSTextView;
+
+    if let Some(text_view) = view.downcast_ref::<NSTextView>() {
+        if text_view
+            .string()
+            .to_string()
+            .contains(ABOUT_COPYRIGHT_TEXT)
+        {
+            if let Some(storage) = unsafe { text_view.textStorage() } {
+                storage.setAttributedString(&build_about_credits(mtm));
+            }
+            text_view.setNeedsDisplay(true);
+            return true;
+        }
+    }
+
+    let subviews = view.subviews();
+    for index in 0..subviews.count() {
+        if replace_about_credits(&subviews.objectAtIndex(index), mtm) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Invisible helper view that lives inside the About panel and reacts to
+/// appearance changes. It is kept in the panel's view hierarchy so AppKit
+/// delivers `viewDidChangeEffectiveAppearance` for free.
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct AboutAppearanceObserverIvars;
+
+#[cfg(target_os = "macos")]
+define_class!(
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = AboutAppearanceObserverIvars]
+    struct AboutAppearanceObserver;
+
+    impl AboutAppearanceObserver {
+        #[unsafe(method(viewDidChangeEffectiveAppearance))]
+        fn view_did_change_effective_appearance(&self) {
+            unsafe {
+                let _: () = msg_send![super(self), viewDidChangeEffectiveAppearance];
+            }
+            refresh_open_about_panel();
+        }
+    }
+);
+
+#[cfg(target_os = "macos")]
+impl AboutAppearanceObserver {
+    fn new(mtm: MainThreadMarker) -> objc2::rc::Retained<Self> {
+        use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+        let this = Self::alloc(mtm).set_ivars(AboutAppearanceObserverIvars);
+        unsafe {
+            msg_send![
+                super(this),
+                initWithFrame: NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0))
+            ]
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn install_about_appearance_observer(content: &NSView, mtm: MainThreadMarker) {
+    use objc2::ClassType;
+    use objc2_foundation::NSObjectProtocol;
+
+    let subviews = content.subviews();
+    for index in 0..subviews.count() {
+        if subviews
+            .objectAtIndex(index)
+            .isKindOfClass(AboutAppearanceObserver::class())
+        {
+            return;
+        }
+    }
+
+    let observer = AboutAppearanceObserver::new(mtm);
+    content.addSubview(&observer);
+}
+
+#[cfg(target_os = "macos")]
+fn show_about_panel_on_main_thread(bundle_version: &str) {
+    use objc2::{rc::Retained, runtime::AnyObject, AnyThread};
+    use objc2_app_kit::{
+        NSAboutPanelOptionApplicationIcon, NSAboutPanelOptionApplicationName,
+        NSAboutPanelOptionApplicationVersion, NSAboutPanelOptionCredits, NSAboutPanelOptionVersion,
+        NSApplication, NSImage,
+    };
+    use objc2_foundation::{NSData, NSDictionary, NSString};
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+
+    let credits = build_about_credits(mtm);
 
     // Load the full-size app icon; the default panel icon can be a small
     // generic placeholder when the app is launched outside its bundle.
@@ -398,30 +585,18 @@ fn show_about_panel_on_main_thread(bundle_version: &str) {
         app.orderFrontStandardAboutPanelWithOptions(&options);
     }
 
-    // The panel colors all links with the system link color by default.
-    // Restyle them to use the label color so PW486 matches the surrounding
-    // text while keeping the underline and pointing-hand cursor.
-    let label: Retained<AnyObject> = unsafe { Retained::cast_unchecked(NSColor::labelColor()) };
-    let underline: Retained<AnyObject> =
-        unsafe { Retained::cast_unchecked(NSNumber::new_usize(1)) };
-    let cursor: Retained<AnyObject> =
-        unsafe { Retained::cast_unchecked(NSCursor::pointingHandCursor()) };
-    let link_keys: [&NSString; 3] = unsafe {
-        [
-            NSForegroundColorAttributeName,
-            NSUnderlineStyleAttributeName,
-            NSCursorAttributeName,
-        ]
-    };
-    let link_attributes =
-        NSDictionary::from_retained_objects(&link_keys, &[label, underline, cursor]);
+    let link_attributes = about_link_attributes();
 
     let windows = app.windows();
     for index in 0..windows.count() {
         let window = windows.objectAtIndex(index);
         if let Some(content) = window.contentView() {
             if style_about_panel(&content, &link_attributes) {
-                content.layoutSubtreeIfNeeded();
+                install_about_appearance_observer(&content, mtm);
+                // The panel copies its own credits into the text view while it
+                // prepares the window, which can drop our link color, so
+                // rebuild them once the panel is on screen.
+                refresh_open_about_panel();
                 break;
             }
         }
@@ -577,6 +752,247 @@ fn capture_window_geometry<R: Runtime>(window: &tauri::Window<R>) -> Option<Wind
     })
 }
 
+#[cfg(target_os = "macos")]
+fn remember_window_geometry<R: Runtime>(window: &tauri::Window<R>) {
+    // Quitting the app does not emit a close request, so this is the only
+    // chance to see the live frame.
+    if WINDOW_CLOSING.load(Ordering::SeqCst) {
+        return;
+    }
+    if let Some(geometry) = capture_window_geometry(window) {
+        if let Ok(mut cached) = LAST_WINDOW_GEOMETRY.lock() {
+            *cached = Some(geometry);
+        }
+    }
+}
+
+// A native drag handle for the hidden titlebar. The window is moved directly
+// from mouse-dragged events instead of handing the mouse-down to AppKit's
+// `performWindowDragWithEvent:`. On fast drags that modal move loop can see the
+// mouse-up before the move has started and log "Window move completed without
+// beginning" (and swallow the drag), so a plain frame-origin update is both
+// deterministic and warning-free.
+#[cfg(target_os = "macos")]
+struct TitlebarDragState {
+    start_mouse: objc2_foundation::NSPoint,
+    start_origin: objc2_foundation::NSPoint,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct TitlebarDragViewIvars {
+    drag: std::cell::RefCell<Option<TitlebarDragState>>,
+}
+
+#[cfg(target_os = "macos")]
+define_class!(
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = TitlebarDragViewIvars]
+    struct TitlebarDragView;
+
+    impl TitlebarDragView {
+        #[unsafe(method(acceptsFirstMouse:))]
+        fn accepts_first_mouse(&self, _event: Option<&NSEvent>) -> bool {
+            true
+        }
+
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, event: &NSEvent) {
+            if event.clickCount() == 2 {
+                self.ivars().drag.borrow_mut().take();
+                if let Some(window) = self.window() {
+                    window.performZoom(None);
+                }
+                return;
+            }
+            let Some(window) = self.window() else {
+                return;
+            };
+            *self.ivars().drag.borrow_mut() = Some(TitlebarDragState {
+                start_mouse: window.convertPointToScreen(event.locationInWindow()),
+                start_origin: window.frame().origin,
+            });
+        }
+
+        #[unsafe(method(mouseDragged:))]
+        fn mouse_dragged(&self, event: &NSEvent) {
+            let Some(window) = self.window() else {
+                return;
+            };
+            let (start_mouse, start_origin) = {
+                let drag = self.ivars().drag.borrow();
+                let Some(state) = drag.as_ref() else {
+                    return;
+                };
+                (state.start_mouse, state.start_origin)
+            };
+
+            // Use the event's own location instead of `NSEvent::mouseLocation()`:
+            // fast flicks can be delivered after the pointer has already moved
+            // on, which makes the global mouse location lag behind the event.
+            let current = window.convertPointToScreen(event.locationInWindow());
+            let dx = current.x - start_mouse.x;
+            let dy = current.y - start_mouse.y;
+            if dx.abs() < 1.0 && dy.abs() < 1.0 {
+                return;
+            }
+            window.setFrameOrigin(objc2_foundation::NSPoint::new(
+                start_origin.x + dx,
+                start_origin.y + dy,
+            ));
+        }
+
+        #[unsafe(method(mouseUp:))]
+        fn mouse_up(&self, event: &NSEvent) {
+            let Some(window) = self.window() else {
+                return;
+            };
+            let Some(state) = self.ivars().drag.borrow_mut().take() else {
+                return;
+            };
+
+            // A very fast flick can be coalesced into mouse-down + mouse-up
+            // without any mouse-dragged event. Apply the final delta so the
+            // window still follows the pointer instead of swallowing the drag.
+            let current = window.convertPointToScreen(event.locationInWindow());
+            let dx = current.x - state.start_mouse.x;
+            let dy = current.y - state.start_mouse.y;
+            if dx.abs() >= 1.0 || dy.abs() >= 1.0 {
+                window.setFrameOrigin(objc2_foundation::NSPoint::new(
+                    state.start_origin.x + dx,
+                    state.start_origin.y + dy,
+                ));
+            }
+        }
+    }
+);
+
+#[cfg(target_os = "macos")]
+impl TitlebarDragView {
+    fn new(mtm: MainThreadMarker, frame: objc2_foundation::NSRect) -> objc2::rc::Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(TitlebarDragViewIvars::default());
+        unsafe { msg_send![super(this), initWithFrame: frame] }
+    }
+}
+
+#[cfg(target_os = "macos")]
+const TITLEBAR_DRAG_VIEW_WIDTH: f64 = 353.0;
+#[cfg(target_os = "macos")]
+const TITLEBAR_DRAG_VIEW_COMPACT_WIDTH: f64 = 72.0;
+#[cfg(target_os = "macos")]
+const TITLEBAR_DRAG_VIEW_HEIGHT: f64 = 54.0;
+#[cfg(target_os = "macos")]
+const TITLEBAR_DRAG_VIEW_COMPACT_BREAKPOINT: f64 = 900.0;
+
+/// Keeps the native drag handle over the top strip. It is hidden in fullscreen
+/// and outside the DM routes where a page control may occupy the same corner;
+/// compact DM layouts use a narrower handle over the icon rail.
+#[cfg(target_os = "macos")]
+fn sync_titlebar_drag_view(window: &tauri::WebviewWindow) {
+    use objc2::ClassType;
+    use objc2_app_kit::NSAutoresizingMaskOptions;
+    use objc2_foundation::{NSObjectProtocol, NSPoint, NSRect, NSSize};
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let Ok(ns_window) = window.ns_window() else {
+        return;
+    };
+    let ns_window = unsafe { &*(ns_window.cast::<NSWindow>()) };
+    // The native titlebar drag must not race the manual frame updates; it is
+    // also the only remaining path that can emit "Window move completed
+    // without beginning" on fast flicks.
+    ns_window.setMovable(false);
+    let Some(content) = ns_window.contentView() else {
+        return;
+    };
+
+    let logical_width = window
+        .inner_size()
+        .ok()
+        .zip(window.scale_factor().ok())
+        .map(|(size, scale)| size.width as f64 / scale)
+        .unwrap_or(f64::INFINITY);
+    let path = window
+        .url()
+        .map(|url| url.path().to_string())
+        .unwrap_or_default();
+    let is_dm = path == "/direct" || path.starts_with("/direct/");
+    let is_inbox = path == "/direct/inbox" || path == "/direct/inbox/";
+    let compact = logical_width < TITLEBAR_DRAG_VIEW_COMPACT_BREAKPOINT;
+    let hidden = window.is_fullscreen().unwrap_or(false) || !is_dm;
+
+    // The inbox has no chat header, so the whole top strip can be a native
+    // drag handle. Chat and Requests pages keep it over the rail only; the
+    // compact layout has a narrow icon rail, so use a smaller handle there.
+    let view_width = if is_inbox {
+        content.bounds().size.width
+    } else if compact {
+        TITLEBAR_DRAG_VIEW_COMPACT_WIDTH
+    } else {
+        TITLEBAR_DRAG_VIEW_WIDTH
+    };
+
+    let subviews = content.subviews();
+    for index in 0..subviews.count() {
+        let view = subviews.objectAtIndex(index);
+        if view.isKindOfClass(TitlebarDragView::class()) {
+            view.setHidden(hidden);
+            if !hidden {
+                let bounds = content.bounds();
+                view.setFrame(NSRect::new(
+                    NSPoint::new(0.0, bounds.size.height - TITLEBAR_DRAG_VIEW_HEIGHT),
+                    NSSize::new(view_width, TITLEBAR_DRAG_VIEW_HEIGHT),
+                ));
+            }
+            return;
+        }
+    }
+
+    let bounds = content.bounds();
+    let view = TitlebarDragView::new(
+        mtm,
+        NSRect::new(
+            NSPoint::new(0.0, bounds.size.height - TITLEBAR_DRAG_VIEW_HEIGHT),
+            NSSize::new(view_width, TITLEBAR_DRAG_VIEW_HEIGHT),
+        ),
+    );
+    view.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinYMargin);
+    view.setHidden(hidden);
+    content.addSubview(&view);
+}
+
+/// SPA thread routes (opening a chat, Requests, returning to the inbox) do not
+/// fire a page-load or resize event, so watch the webview URL and resize the
+/// native drag handle when the route changes.
+#[cfg(target_os = "macos")]
+fn spawn_titlebar_drag_sync(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut last_path = String::new();
+        loop {
+            let Some(window) = app.get_webview_window("main") else {
+                break;
+            };
+            let Ok(url) = window.url() else {
+                break;
+            };
+            let path = url.path().to_string();
+            if path != last_path {
+                last_path = path;
+                let app_handle = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Some(win) = app_handle.get_webview_window("main") {
+                        sync_titlebar_drag_view(&win);
+                    }
+                });
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    });
+}
+
 /// Creates the main webview window. Called once from setup and again every time
 /// the user reopens the app from the Dock after closing its window.
 fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
@@ -645,6 +1061,14 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
             if payload.event() == PageLoadEvent::Finished {
                 let _ = window.eval(INIT_SCRIPT);
             }
+            #[cfg(target_os = "macos")]
+            {
+                let window_handle = window.clone();
+                let handle = window_handle.clone();
+                let _ = window_handle.run_on_main_thread(move || {
+                    sync_titlebar_drag_view(&handle);
+                });
+            }
         })
         .on_navigation(move |url| match classify_frame_navigation(url) {
             NavigationAction::Allow => true,
@@ -675,6 +1099,14 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<()> {
         })
         .build()?;
 
+    #[cfg(target_os = "macos")]
+    sync_titlebar_drag_view(&window);
+    #[cfg(target_os = "macos")]
+    spawn_titlebar_drag_sync(app.clone());
+
+    // The titlebar is transparent (see titleBarStyle in tauri.conf.json), so the
+    // window background is also what the titlebar displays. Set it before
+    // showing and keep it in sync in the ThemeChanged handler below.
     let theme = window.theme().unwrap_or(tauri::Theme::Light);
     let _ = window.set_background_color(Some(window_background_color(theme)));
     let _ = window.show();
@@ -974,20 +1406,22 @@ pub fn run() {
                     });
                 }
             }
-            WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-                // Remember the live frame; quitting the app does not emit a
-                // close request, so this is the only chance to see the value.
-                if !WINDOW_CLOSING.load(Ordering::SeqCst) {
-                    if let Some(geometry) = capture_window_geometry(window) {
-                        if let Ok(mut cached) = LAST_WINDOW_GEOMETRY.lock() {
-                            *cached = Some(geometry);
-                        }
+            WindowEvent::Moved(_) => remember_window_geometry(window),
+            WindowEvent::Resized(_) => {
+                remember_window_geometry(window);
+
+                let app_handle = window.app_handle().clone();
+                let handle = app_handle.clone();
+                let _ = app_handle.run_on_main_thread(move || {
+                    if let Some(win) = handle.get_webview_window("main") {
+                        sync_titlebar_drag_view(&win);
                     }
-                }
+                });
             }
             WindowEvent::ThemeChanged(theme) => {
-                // Keep the native background in sync so a later recreation or
-                // overscroll never exposes the previous theme's color.
+                // The transparent titlebar shows the window background, so this
+                // also restyles it live and keeps overscroll from exposing the
+                // previous theme's color.
                 if let Some(win) = window.app_handle().get_webview_window("main") {
                     let _ = win.set_background_color(Some(window_background_color(*theme)));
                 }

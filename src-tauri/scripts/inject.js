@@ -737,6 +737,19 @@
     }
 
     /* ==========================================================================
+       2b. Hidden Titlebar: Leave Room for the Traffic Lights on the Left Rail
+       ========================================================================== */
+
+    /* The main window uses an overlay titlebar with no title text, so the
+       macOS window controls float above the DM rail. Push the rail's inner
+       content down instead of the rail itself, so its divider still starts at
+       the window edge; the empty strip is also the window drag handle. */
+    main[role="main"] div[role="navigation"] > div:first-child {
+      padding-top: 20px !important;
+      box-sizing: border-box !important;
+    }
+
+    /* ==========================================================================
        3. DM Conversation List: Disable Story Ring Click Hijack & Show Compact Name
        ========================================================================== */
 
